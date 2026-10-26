@@ -90,6 +90,22 @@ const HEAT_COLORS: [number, string][] = [
   [1, '#3f007d'],
 ];
 
+// MapLibre expressions built from arrays. TypeScript can't verify the shape of
+// spread arrays, so we tell it these are valid expressions.
+const asExpression = (e: unknown[]) => e as unknown as ExpressionSpecification;
+
+const ASTHMA_COLOR_EXPR = asExpression([
+  'interpolate', ['linear'], ['get', 'asthma'], ...ASTHMA_STOPS.flat(),
+]);
+
+const HEAT_COLOR_EXPR = asExpression([
+  'interpolate', ['linear'], ['heatmap-density'], ...HEAT_COLORS.flat(),
+]);
+
+const SECTOR_COLOR_EXPR = asExpression([
+  'match', ['get', 'sector'], ...SECTOR_COLORS.flat(), OTHER_SECTOR_COLOR,
+]);
+
 // ---------- Layer groups for the toggle panel ----------
 
 const LAYER_GROUPS = {
@@ -159,7 +175,7 @@ export default function UsMap() {
           filter: ['!=', ['get', 'asthma'], null],
           layout: { visibility: vis('asthma') },
           paint: {
-            'fill-color': ['interpolate', ['linear'], ['get', 'asthma'], ...ASTHMA_STOPS.flat()],
+            'fill-color': ASTHMA_COLOR_EXPR,
             'fill-opacity': 0.8,
           },
         },
@@ -227,7 +243,7 @@ export default function UsMap() {
             'heatmap-weight': ['interpolate', ['linear'], LOG_AIR, 0, 0, 3, 0.1, 4.7, 0.4, 6, 1],
             'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 3, 0.6, 9, 2],
             'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 3, 6, 9, 20],
-            'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], ...HEAT_COLORS.flat()],
+            'heatmap-color': HEAT_COLOR_EXPR,
             'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 7, 0.85, 9, 0],
           },
         },
@@ -282,7 +298,7 @@ export default function UsMap() {
         minzoom: 6,
         layout: { visibility: vis('tri') },
         paint: {
-          'circle-color': ['match', ['get', 'sector'], ...SECTOR_COLORS.flat(), OTHER_SECTOR_COLOR],
+          'circle-color': SECTOR_COLOR_EXPR,
           'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, radiusByAir(0.6), 12, radiusByAir(1.4)],
           'circle-opacity': ['interpolate', ['linear'], ['zoom'], 6, 0, 7.5, 0.85],
           'circle-stroke-color': '#ffffff',
