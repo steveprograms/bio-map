@@ -15,22 +15,42 @@ export const WORKER_URL = '/maplibre/maplibre-gl-worker.mjs';
 // GeoJSON sources: source id -> file in public/
 export const DATA_SOURCES = {
   'us-states': '/data/us-states.geojson',
-  'us-counties': '/data/us-counties.geojson',
   'us-state-labels': '/data/us-state-labels.geojson',
   'us-county-labels': '/data/us-county-labels.geojson',
-  'county-asthma': '/data/us-counties-asthma.geojson',
+  counties: '/data/counties.geojson', // built by scripts/build-counties.mjs
   tri: '/data/tri-facilities.geojson',
 } as const;
 
-// Years the data describes (shown in legends and popups)
-export const ASTHMA_DATA_YEAR = 2023;
+// ---------- Health measures (CDC PLACES) ----------
+
+// Built by scripts/build-counties.mjs: one entry per measure
+export const MEASURES_URL = '/data/measures.json';
+export const DEFAULT_MEASURE_ID = 'CASTHMA';
+
+export interface Measure {
+  id: string; // PLACES measure id, e.g. CASTHMA; also the property name in counties.geojson
+  name: string; // full name, e.g. "Current asthma among adults"
+  short: string; // short name for the picker, e.g. "Current Asthma"
+  category: string; // e.g. "Health Outcomes"
+  year: number; // survey year the estimates describe
+  unit: string; // "%"
+  counties: number; // counties with a value
+  min: number;
+  max: number;
+  p05: number; // 5th percentile across counties
+  p95: number; // 95th percentile across counties
+}
+
+// Sequential colors, light (low) to dark (high), spread from each measure's 5th to 95th percentile
+export const HEALTH_COLORS = ['#ffffd4', '#fed98e', '#fe9929', '#d95f0e', '#993404'];
+
 export const TRI_REPORTING_YEAR = 2024;
 
 // ---------- Toggleable layer groups ----------
 
 // Each checkbox in the panel controls one group of map layer ids
 export const LAYER_GROUPS = {
-  asthma: ['asthma-fill', 'asthma-no-data'],
+  health: ['health-fill', 'health-no-data'],
   tri: ['tri-heat', 'tri-points'],
 } as const;
 
@@ -38,19 +58,12 @@ export type LayerKey = keyof typeof LAYER_GROUPS;
 export type Visibility = 'visible' | 'none';
 
 export const LAYER_LABELS: Record<LayerKey, string> = {
-  asthma: 'Adult asthma (county)',
+  health: 'Health measure (county)',
   tri: 'Toxic air releases (EPA TRI)',
 };
 
-// ---------- Asthma colors ----------
-
-// [value, color] pairs, light (low) to dark (high). Values must ascend.
-export const ASTHMA_STOPS: [number, string][] = [
-  [8, '#fff7bc'],
-  [10, '#fec44f'],
-  [12, '#ec7014'],
-  [14, '#8c2d04'],
-];
+// Accessible name of the measure dropdown (also used by tests to find it)
+export const MEASURE_PICKER_LABEL = 'Choose health measure';
 
 // ---------- TRI colors ----------
 
@@ -70,7 +83,7 @@ export const OTHER_SECTOR_COLOR = '#9ca3af';
 export const sectorLabel = (sector: string) =>
   sector === 'Nonmetallic Mineral Product' ? 'Nonmetallic Minerals' : sector;
 
-// Heatmap ramp in purples so it contrasts with the warm asthma colors. Densities must ascend.
+// Heatmap ramp in purples so it contrasts with the warm health colors. Densities must ascend.
 export const HEAT_COLORS: [number, string][] = [
   [0, 'rgba(63, 0, 125, 0)'],
   [0.2, '#dadaeb'],

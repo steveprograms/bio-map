@@ -1,14 +1,31 @@
 // MapLibre expressions used by the layers.
 import type { ExpressionSpecification } from 'maplibre-gl';
-import { ASTHMA_STOPS, HEAT_COLORS, OTHER_SECTOR_COLOR, SECTOR_COLORS } from './config';
+import { HEALTH_COLORS, HEAT_COLORS, OTHER_SECTOR_COLOR, SECTOR_COLORS, type Measure } from './config';
 
 // TypeScript can't verify the shape of expressions built by spreading arrays,
 // so we tell it these are valid expressions. layers.test.ts checks them for real.
 const asExpression = (e: unknown[]) => e as unknown as ExpressionSpecification;
 
-export const ASTHMA_COLOR_EXPR = asExpression([
-  'interpolate', ['linear'], ['get', 'asthma'], ...ASTHMA_STOPS.flat(),
-]);
+// ---------- Health measures ----------
+
+// Color stops for a measure: HEALTH_COLORS spread evenly from its 5th to 95th percentile.
+// Counties outside that range get the end colors, so a few extremes don't wash out the rest.
+export function measureStops(measure: Pick<Measure, 'p05' | 'p95'>): [number, string][] {
+  const low = measure.p05;
+  // MapLibre needs strictly ascending stops, so guard against a measure with no spread
+  const high = measure.p95 > measure.p05 ? measure.p95 : measure.p05 + 1;
+  const step = (high - low) / (HEALTH_COLORS.length - 1);
+  return HEALTH_COLORS.map((color, i) => [low + i * step, color]);
+}
+
+export const measureColorExpr = (measure: Measure) =>
+  asExpression(['interpolate', ['linear'], ['get', measure.id], ...measureStops(measure).flat()]);
+
+// Filters: counties that have a value for the measure, and counties that don't
+export const hasValue = (measureId: string) => asExpression(['!=', ['get', measureId], null]);
+export const lacksValue = (measureId: string) => asExpression(['==', ['get', measureId], null]);
+
+// ---------- TRI ----------
 
 export const HEAT_COLOR_EXPR = asExpression([
   'interpolate', ['linear'], ['heatmap-density'], ...HEAT_COLORS.flat(),

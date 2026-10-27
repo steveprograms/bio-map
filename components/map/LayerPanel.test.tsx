@@ -1,50 +1,111 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { LAYER_LABELS, SECTOR_COLORS, sectorLabel } from './config';
+import { LAYER_LABELS, MEASURE_PICKER_LABEL, SECTOR_COLORS, sectorLabel, type LayerKey } from './config';
+import { sampleMeasures } from './test-fixtures';
 import LayerPanel from './LayerPanel';
 
-const allOff = { asthma: false, tri: false };
+const allOff = { health: false, tri: false };
+
+// Renders the panel with sensible defaults; override any prop per test
+function renderPanel(
+  props: Partial<{
+    visible: Record<LayerKey, boolean>;
+    onToggle: (key: LayerKey) => void;
+    measures: typeof sampleMeasures;
+    measureId: string;
+    onMeasureChange: (id: string) => void;
+  }> = {}
+) {
+  return render(
+    <LayerPanel
+      visible={props.visible ?? allOff}
+      onToggle={props.onToggle ?? (() => {})}
+      measures={props.measures ?? sampleMeasures}
+      measureId={props.measureId ?? 'CASTHMA'}
+      onMeasureChange={props.onMeasureChange ?? (() => {})}
+    />
+  );
+}
 
 describe('LayerPanel', () => {
   it('shows an unchecked checkbox for each layer by default', () => {
-    render(<LayerPanel visible={allOff} onToggle={() => {}} />);
+    renderPanel();
 
-    expect(screen.getByLabelText(LAYER_LABELS.asthma)).not.toBeChecked();
+    expect(screen.getByLabelText(LAYER_LABELS.health)).not.toBeChecked();
     expect(screen.getByLabelText(LAYER_LABELS.tri)).not.toBeChecked();
   });
 
   it('reports which layer was toggled', async () => {
     const user = userEvent.setup();
     const onToggle = vi.fn();
-    render(<LayerPanel visible={allOff} onToggle={onToggle} />);
+    renderPanel({ onToggle });
 
-    await user.click(screen.getByLabelText(LAYER_LABELS.asthma));
-    expect(onToggle).toHaveBeenLastCalledWith('asthma');
+    await user.click(screen.getByLabelText(LAYER_LABELS.health));
+    expect(onToggle).toHaveBeenLastCalledWith('health');
 
     await user.click(screen.getByLabelText(LAYER_LABELS.tri));
     expect(onToggle).toHaveBeenLastCalledWith('tri');
   });
 
-  it('hides legends for layers that are off', () => {
-    render(<LayerPanel visible={allOff} onToggle={() => {}} />);
+  it('hides legends and the measure picker for layers that are off', () => {
+    renderPanel();
 
+    expect(screen.queryByLabelText(MEASURE_PICKER_LABEL)).not.toBeInTheDocument();
     expect(screen.queryByText('No data')).not.toBeInTheDocument();
     expect(screen.queryByText('Chemicals')).not.toBeInTheDocument();
   });
+});
 
-  it('shows the asthma legend when asthma is on', () => {
-    render(<LayerPanel visible={{ asthma: true, tri: false }} onToggle={() => {}} />);
+describe('LayerPanel health measure', () => {
+  const healthOn = { health: true, tri: false };
 
-    expect(screen.getByLabelText(LAYER_LABELS.asthma)).toBeChecked();
-    expect(screen.getByText('≤8%')).toBeInTheDocument();
-    expect(screen.getByText('14%+')).toBeInTheDocument();
+  it('shows the selected measure with its legend', () => {
+    renderPanel({ visible: healthOn });
+
+    expect(screen.getByLabelText(LAYER_LABELS.health)).toBeChecked();
+    expect(screen.getByLabelText(MEASURE_PICKER_LABEL)).toHaveValue('CASTHMA');
+    expect(screen.getByText('≤8.6%')).toBeInTheDocument();
+    expect(screen.getByText('12.4%+')).toBeInTheDocument();
     expect(screen.getByText('No data')).toBeInTheDocument();
-    expect(screen.getByText(/CDC PLACES/)).toBeInTheDocument();
+    expect(screen.getByText(/Current asthma among adults, 2023/)).toBeInTheDocument();
   });
 
-  it('shows every industry group in the TRI legend when TRI is on', () => {
-    render(<LayerPanel visible={{ asthma: false, tri: true }} onToggle={() => {}} />);
+  it('lists every measure in the picker', () => {
+    renderPanel({ visible: healthOn });
+
+    for (const measure of sampleMeasures) {
+      expect(screen.getByRole('option', { name: measure.short })).toBeInTheDocument();
+    }
+  });
+
+  it('reports the measure the user picks', async () => {
+    const user = userEvent.setup();
+    const onMeasureChange = vi.fn();
+    renderPanel({ visible: healthOn, onMeasureChange });
+
+    await user.selectOptions(screen.getByLabelText(MEASURE_PICKER_LABEL), 'CSMOKING');
+    expect(onMeasureChange).toHaveBeenCalledWith('CSMOKING');
+  });
+
+  it('updates the legend for a different measure', () => {
+    renderPanel({ visible: healthOn, measureId: 'CSMOKING' });
+
+    expect(screen.getByText('≤10.2%')).toBeInTheDocument();
+    expect(screen.getByText('26.5%+')).toBeInTheDocument();
+    expect(screen.getByText(/Current cigarette smoking among adults/)).toBeInTheDocument();
+  });
+
+  it('says measures are loading before they arrive', () => {
+    renderPanel({ visible: healthOn, measures: [] });
+
+    expect(screen.getByText('Loading measures…')).toBeInTheDocument();
+  });
+});
+
+describe('LayerPanel TRI legend', () => {
+  it('shows every industry group when TRI is on', () => {
+    renderPanel({ visible: { health: false, tri: true } });
 
     for (const [sector] of SECTOR_COLORS) {
       expect(screen.getByText(sectorLabel(sector))).toBeInTheDocument();

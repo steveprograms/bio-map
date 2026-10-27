@@ -3,21 +3,25 @@
 // The checkbox panel and legends. Pure React (no map code), so it's easy to unit test.
 import type { CSSProperties } from 'react';
 import {
-  ASTHMA_DATA_YEAR,
-  ASTHMA_STOPS,
   HEAT_COLORS,
   LAYER_LABELS,
+  MEASURE_PICKER_LABEL,
   OTHER_SECTOR_COLOR,
   SECTOR_COLORS,
   TRI_REPORTING_YEAR,
   sectorLabel,
   type LayerKey,
+  type Measure,
 } from './config';
+import { measureStops } from './expressions';
 import { HATCH_CSS } from './hatchPattern';
 
 interface LayerPanelProps {
   visible: Record<LayerKey, boolean>;
   onToggle: (key: LayerKey) => void;
+  measures: Measure[];
+  measureId: string;
+  onMeasureChange: (measureId: string) => void;
 }
 
 const panelStyle: CSSProperties = {
@@ -31,7 +35,7 @@ const panelStyle: CSSProperties = {
   fontFamily: 'system-ui, sans-serif',
   fontSize: 13,
   color: '#1e293b',
-  width: 240,
+  width: 260,
   maxHeight: 'calc(100% - 24px)',
   overflowY: 'auto',
 };
@@ -43,16 +47,18 @@ const legendNote: CSSProperties = { fontSize: 10, color: '#64748b', marginTop: 6
 const gradient = (stops: [number, string][]) =>
   `linear-gradient(to right, ${stops.map(([, color]) => color).join(', ')})`;
 
-export default function LayerPanel({ visible, onToggle }: LayerPanelProps) {
+export default function LayerPanel({ visible, onToggle, measures, measureId, onMeasureChange }: LayerPanelProps) {
   return (
     <div role="region" aria-label="Map layers" style={panelStyle}>
       <div style={{ fontWeight: 600, marginBottom: 6 }}>Layers</div>
 
       <label style={checkboxRow}>
-        <input type="checkbox" checked={visible.asthma} onChange={() => onToggle('asthma')} />
-        {LAYER_LABELS.asthma}
+        <input type="checkbox" checked={visible.health} onChange={() => onToggle('health')} />
+        {LAYER_LABELS.health}
       </label>
-      {visible.asthma && <AsthmaLegend />}
+      {visible.health && (
+        <HealthLegend measures={measures} measureId={measureId} onMeasureChange={onMeasureChange} />
+      )}
 
       <label style={{ ...checkboxRow, marginTop: 6 }}>
         <input type="checkbox" checked={visible.tri} onChange={() => onToggle('tri')} />
@@ -63,13 +69,50 @@ export default function LayerPanel({ visible, onToggle }: LayerPanelProps) {
   );
 }
 
-function AsthmaLegend() {
+function HealthLegend({
+  measures,
+  measureId,
+  onMeasureChange,
+}: Pick<LayerPanelProps, 'measures' | 'measureId' | 'onMeasureChange'>) {
+  const measure = measures.find((m) => m.id === measureId);
+  if (!measure) return <div style={legendNote}>Loading measures…</div>;
+
+  const categories = [...new Set(measures.map((m) => m.category))];
+  const stops = measureStops(measure);
+  const low = stops[0][0].toFixed(1);
+  const high = stops[stops.length - 1][0].toFixed(1);
+
   return (
     <div style={{ margin: '8px 0 10px' }}>
-      <div style={{ height: 10, borderRadius: 2, background: gradient(ASTHMA_STOPS) }} />
+      <select
+        aria-label={MEASURE_PICKER_LABEL}
+        value={measureId}
+        onChange={(e) => onMeasureChange(e.target.value)}
+        style={{ width: '100%', fontSize: 12, padding: '3px 4px', marginBottom: 8 }}
+      >
+        {categories.map((category) => (
+          <optgroup key={category} label={category}>
+            {measures
+              .filter((m) => m.category === category)
+              .map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.short}
+                </option>
+              ))}
+          </optgroup>
+        ))}
+      </select>
+
+      <div style={{ height: 10, borderRadius: 2, background: gradient(stops) }} />
       <div style={rangeLabels}>
-        <span>≤{ASTHMA_STOPS[0][0]}%</span>
-        <span>{ASTHMA_STOPS[ASTHMA_STOPS.length - 1][0]}%+</span>
+        <span>
+          ≤{low}
+          {measure.unit}
+        </span>
+        <span>
+          {high}
+          {measure.unit}+
+        </span>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, marginTop: 6 }}>
         <span
@@ -84,7 +127,8 @@ function AsthmaLegend() {
         No data
       </div>
       <div style={legendNote}>
-        Age-adjusted % of adults with current asthma, {ASTHMA_DATA_YEAR}. Source: CDC PLACES, 2025 release.
+        {measure.name}, {measure.year}. Age-adjusted prevalence; colors span the middle 90% of counties.
+        Source: CDC PLACES, 2025 release.
       </div>
     </div>
   );

@@ -1,7 +1,15 @@
 // End-to-end tests: run the real app in a real browser.
 // These need an internet connection, since the base map comes from OpenFreeMap.
 import { expect, test, type Page } from '@playwright/test';
-import { DATA_SOURCES, LAYER_GROUPS, LAYER_LABELS, WORKER_URL, type LayerKey } from '../components/map/config';
+import {
+  DATA_SOURCES,
+  LAYER_GROUPS,
+  LAYER_LABELS,
+  MEASURE_PICKER_LABEL,
+  MEASURES_URL,
+  WORKER_URL,
+  type LayerKey,
+} from '../components/map/config';
 
 // Opens the home page and waits until all our layers have been added
 async function openLoadedMap(page: Page) {
@@ -18,7 +26,7 @@ test('map loads without worker or page errors', async ({ page }) => {
   const problems: string[] = [];
   page.on('pageerror', (error) => problems.push(error.message));
   page.on('console', (msg) => {
-    if (msg.type() === 'error' && /worker/i.test(msg.text())) problems.push(msg.text());
+    if (msg.type() === 'error' && /worker|measures/i.test(msg.text())) problems.push(msg.text());
   });
 
   await openLoadedMap(page);
@@ -28,7 +36,7 @@ test('map loads without worker or page errors', async ({ page }) => {
 });
 
 test('data files and the MapLibre worker are served', async ({ request }) => {
-  for (const url of [...Object.values(DATA_SOURCES), WORKER_URL]) {
+  for (const url of [...Object.values(DATA_SOURCES), MEASURES_URL, WORKER_URL]) {
     const response = await request.get(url);
     expect(response.ok(), `${url} returned ${response.status()}`).toBe(true);
   }
@@ -39,7 +47,7 @@ for (const key of Object.keys(LAYER_GROUPS) as LayerKey[]) {
 
   test(`"${label}" checkbox shows and hides its map layers`, async ({ page }) => {
     await openLoadedMap(page);
-    const checkbox = page.getByLabel(label);
+    const checkbox = page.getByLabel(label, { exact: true });
 
     for (const id of LAYER_GROUPS[key]) expect(await layerVisibility(page, id)).toBe('none');
 
@@ -54,3 +62,19 @@ for (const key of Object.keys(LAYER_GROUPS) as LayerKey[]) {
     }
   });
 }
+
+test('picking a different health measure recolors the map', async ({ page }) => {
+  await openLoadedMap(page);
+  await page.getByLabel(LAYER_LABELS.health, { exact: true }).check();
+
+  const picker = page.getByLabel(MEASURE_PICKER_LABEL, { exact: true });
+  const current = await picker.inputValue();
+  const other = await picker.locator(`option:not([value="${current}"])`).first().getAttribute('value');
+  expect(other, 'the picker should offer more than one measure').toBeTruthy();
+
+  await picker.selectOption(other!);
+
+  const fillColor = () =>
+    page.evaluate(() => JSON.stringify(window.__usMap?.getPaintProperty('health-fill', 'fill-color')));
+  await expect.poll(fillColor).toContain(`"${other}"`);
+});

@@ -7,7 +7,7 @@ export function boundaryLineLayers(): LayerSpecification[] {
     {
       id: 'county-borders',
       type: 'line',
-      source: 'us-counties',
+      source: 'counties',
       minzoom: 5,
       paint: {
         'line-color': '#94a3b8',
