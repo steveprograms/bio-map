@@ -40,5 +40,8 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# public
 public/maplibre/
+
+# data-raw (Raw data is formatted and moved to the public/data/ folder, so data-raw isn't needed for commit)
 data-raw/
