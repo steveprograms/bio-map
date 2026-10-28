@@ -9,6 +9,7 @@ import {
   OTHER_SECTOR_COLOR,
   SECTOR_COLORS,
   TRI_REPORTING_YEAR,
+  formatValue,
   sectorLabel,
   type LayerKey,
   type Measure,
@@ -79,8 +80,8 @@ function HealthLegend({
 
   const categories = [...new Set(measures.map((m) => m.category))];
   const stops = measureStops(measure);
-  const low = stops[0][0].toFixed(1);
-  const high = stops[stops.length - 1][0].toFixed(1);
+  const low = formatValue(stops[0][0], measure);
+  const high = formatValue(stops[stops.length - 1][0], measure);
 
   return (
     <div style={{ margin: '8px 0 10px' }}>
@@ -105,14 +106,8 @@ function HealthLegend({
 
       <div style={{ height: 10, borderRadius: 2, background: gradient(stops) }} />
       <div style={rangeLabels}>
-        <span>
-          ≤{low}
-          {measure.unit}
-        </span>
-        <span>
-          {high}
-          {measure.unit}+
-        </span>
+        <span>≤{low}</span>
+        <span>{high}+</span>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, marginTop: 6 }}>
         <span
@@ -127,8 +122,8 @@ function HealthLegend({
         No data
       </div>
       <div style={legendNote}>
-        {measure.name}, {measure.year}. Age-adjusted prevalence; colors span the middle 90% of counties.
-        Source: CDC PLACES, 2025 release.
+        {measure.name}, {measure.period}. {measure.valueType}; colors span the middle 90% of counties. Source:{' '}
+        {measure.source}.
       </div>
     </div>
   );

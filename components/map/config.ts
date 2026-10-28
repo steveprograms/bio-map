@@ -21,25 +21,32 @@ export const DATA_SOURCES = {
   tri: '/data/tri-facilities.geojson',
 } as const;
 
-// ---------- Health measures (CDC PLACES) ----------
+// ---------- County measures (CDC PLACES, CDC/ATSDR SVI) ----------
 
 // Built by scripts/build-counties.mjs: one entry per measure
 export const MEASURES_URL = '/data/measures.json';
 export const DEFAULT_MEASURE_ID = 'CASTHMA';
 
 export interface Measure {
-  id: string; // PLACES measure id, e.g. CASTHMA; also the property name in counties.geojson
+  id: string; // e.g. CASTHMA or RPL_THEMES; also the property name in counties.geojson
   name: string; // full name, e.g. "Current asthma among adults"
   short: string; // short name for the picker, e.g. "Current Asthma"
-  category: string; // e.g. "Health Outcomes"
-  year: number; // survey year the estimates describe
-  unit: string; // "%"
+  category: string; // picker group, e.g. "Health Outcomes"
+  source: string; // e.g. "CDC PLACES, 2025 release"
+  valueType: string; // e.g. "Age-adjusted prevalence"
+  year: number; // latest year the data describes
+  period: string; // years shown in the legend, e.g. "2023" or "2018–2022"
+  unit: string; // "%", or "" for 0-1 percentile ranks
   counties: number; // counties with a value
   min: number;
   max: number;
   p05: number; // 5th percentile across counties
   p95: number; // 95th percentile across counties
 }
+
+// Formats a measure's value for display: unitless 0-1 ranks get 2 decimals, percentages 1
+export const formatValue = (value: number, measure: Pick<Measure, 'unit'>) =>
+  `${value.toFixed(measure.unit === '' ? 2 : 1)}${measure.unit}`;
 
 // Sequential colors, light (low) to dark (high), spread from each measure's 5th to 95th percentile
 export const HEALTH_COLORS = ['#ffffd4', '#fed98e', '#fe9929', '#d95f0e', '#993404'];
@@ -57,13 +64,15 @@ export const LAYER_GROUPS = {
 export type LayerKey = keyof typeof LAYER_GROUPS;
 export type Visibility = 'visible' | 'none';
 
+// The "health" group now covers every county measure (health and social vulnerability);
+// its internal name is kept so layer ids and tests stay stable.
 export const LAYER_LABELS: Record<LayerKey, string> = {
-  health: 'Health measure (county)',
+  health: 'County data',
   tri: 'Toxic air releases (EPA TRI)',
 };
 
 // Accessible name of the measure dropdown (also used by tests to find it)
-export const MEASURE_PICKER_LABEL = 'Choose health measure';
+export const MEASURE_PICKER_LABEL = 'Choose county measure';
 
 // ---------- TRI colors ----------
 

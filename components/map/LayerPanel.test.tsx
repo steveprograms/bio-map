@@ -96,6 +96,22 @@ describe('LayerPanel health measure', () => {
     expect(screen.getByText(/Current cigarette smoking among adults/)).toBeInTheDocument();
   });
 
+  it('shows 0–1 percentile ranks with two decimals and their own source', () => {
+    renderPanel({ visible: healthOn, measureId: 'RPL_THEMES' });
+
+    expect(screen.getByText('≤0.05')).toBeInTheDocument();
+    expect(screen.getByText('0.95+')).toBeInTheDocument();
+    expect(screen.getByText(/Overall social vulnerability, 2018–2022/)).toBeInTheDocument();
+    expect(screen.getByText(/Social Vulnerability Index 2022/)).toBeInTheDocument();
+  });
+
+  it('groups measures by category in the picker', () => {
+    renderPanel({ visible: healthOn });
+
+    const groups = document.querySelectorAll('optgroup');
+    expect([...groups].map((g) => g.label)).toEqual([...new Set(sampleMeasures.map((m) => m.category))]);
+  });
+
   it('says measures are loading before they arrive', () => {
     renderPanel({ visible: healthOn, measures: [] });
 
