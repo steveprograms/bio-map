@@ -36,7 +36,9 @@ export interface Measure {
   valueType: string; // e.g. "Age-adjusted prevalence"
   year: number; // latest year the data describes
   period: string; // years shown in the legend, e.g. "2023" or "2018–2022"
-  unit: string; // "%", or "" for 0-1 percentile ranks
+  unit: string; // "%", " lbs", or "" (0-1 percentile ranks, counts)
+  decimals: number; // decimal places to show
+  scale: 'linear' | 'log'; // log for very skewed data, like pounds released
   counties: number; // counties with a value
   min: number;
   max: number;
@@ -44,9 +46,12 @@ export interface Measure {
   p95: number; // 95th percentile across counties
 }
 
-// Formats a measure's value for display: unitless 0-1 ranks get 2 decimals, percentages 1
-export const formatValue = (value: number, measure: Pick<Measure, 'unit'>) =>
-  `${value.toFixed(measure.unit === '' ? 2 : 1)}${measure.unit}`;
+// Formats a measure's value for display, e.g. "8.6%", "0.05", "450,000 lbs"
+export const formatValue = (value: number, measure: Pick<Measure, 'unit' | 'decimals'>) =>
+  `${value.toLocaleString('en-US', {
+    minimumFractionDigits: measure.decimals,
+    maximumFractionDigits: measure.decimals,
+  })}${measure.unit}`;
 
 // Sequential colors, light (low) to dark (high), spread from each measure's 5th to 95th percentile
 export const HEALTH_COLORS = ['#ffffd4', '#fed98e', '#fe9929', '#d95f0e', '#993404'];

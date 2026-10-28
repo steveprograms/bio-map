@@ -14,7 +14,7 @@ import {
   type LayerKey,
   type Measure,
 } from './config';
-import { measureStops } from './expressions';
+import { colorRange, measureStops } from './expressions';
 import { HATCH_CSS } from './hatchPattern';
 
 interface LayerPanelProps {
@@ -80,8 +80,10 @@ function HealthLegend({
 
   const categories = [...new Set(measures.map((m) => m.category))];
   const stops = measureStops(measure);
-  const low = formatValue(stops[0][0], measure);
-  const high = formatValue(stops[stops.length - 1][0], measure);
+  const range = colorRange(measure);
+  // "≤" and "+" only when some counties fall beyond the ends of the color range
+  const low = `${range.low > measure.min ? '≤' : ''}${formatValue(range.low, measure)}`;
+  const high = `${formatValue(range.high, measure)}${range.high < measure.max ? '+' : ''}`;
 
   return (
     <div style={{ margin: '8px 0 10px' }}>
@@ -106,8 +108,8 @@ function HealthLegend({
 
       <div style={{ height: 10, borderRadius: 2, background: gradient(stops) }} />
       <div style={rangeLabels}>
-        <span>≤{low}</span>
-        <span>{high}+</span>
+        <span>{low}</span>
+        <span>{high}</span>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, marginTop: 6 }}>
         <span
@@ -122,8 +124,8 @@ function HealthLegend({
         No data
       </div>
       <div style={legendNote}>
-        {measure.name}, {measure.period}. {measure.valueType}; colors span the middle 90% of counties. Source:{' '}
-        {measure.source}.
+        {measure.name}, {measure.period}. {measure.valueType}; colors span the middle 90% of counties
+        {measure.scale === 'log' ? ' on a log scale' : ''}. Source: {measure.source}.
       </div>
     </div>
   );

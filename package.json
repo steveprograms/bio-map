@@ -11,7 +11,8 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "data": "node scripts/build-tri.mjs && mapshaper public/data/tri-facilities.geojson -join data-raw/counties-500k.geojson fields=GEOID -rename-fields county_fips=GEOID -o public/data/tri-facilities.geojson force && node scripts/build-counties.mjs"
   },
   "dependencies": {
     "maplibre-gl": "^6.16.0",
@@ -35,6 +36,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.4.0",
     "jsdom": "^30.1.3",
+    "mapshaper": "^0.7.100",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^5.0.5"

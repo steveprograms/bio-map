@@ -77,15 +77,30 @@ describe('map layers', () => {
 });
 
 describe('measureStops', () => {
-  it('spreads the health colors from the 5th to the 95th percentile', () => {
-    const stops = measureStops({ p05: 8, p95: 12 });
+  it('spreads the colors from the 5th to the 95th percentile', () => {
+    const stops = measureStops({ p05: 8, p95: 12, scale: 'linear' });
     expect(stops.map(([value]) => value)).toEqual([8, 9, 10, 11, 12]);
     expect(stops.map(([, color]) => color)).toEqual(HEALTH_COLORS);
   });
 
-  it('keeps stops strictly ascending even when a measure has no spread', () => {
-    const values = measureStops({ p05: 5, p95: 5 }).map(([value]) => value);
+  it('places log-scale stops on log10(value + 1)', () => {
+    const stops = measureStops({ p05: 0, p95: 9999, scale: 'log' });
+    expect(stops[0][0]).toBe(0);
+    expect(stops[stops.length - 1][0]).toBeCloseTo(4); // log10(10,000)
+  });
+
+  it.each(['linear', 'log'] as const)('keeps %s stops strictly ascending when a measure has no spread', (scale) => {
+    const values = measureStops({ p05: 5, p95: 5, scale }).map(([value]) => value);
     for (let i = 1; i < values.length; i++) expect(values[i]).toBeGreaterThan(values[i - 1]);
+  });
+});
+
+describe('color expressions', () => {
+  it('color log-scale measures by log10(value + 1)', () => {
+    const fill = allLayers(undefined, sampleMeasures.find((m) => m.scale === 'log')).find(
+      (layer) => layer.id === 'health-fill'
+    );
+    expect(JSON.stringify(fill)).toContain('["log10",["+",["get","TRI_AIR_LBS"],1]]');
   });
 });
 

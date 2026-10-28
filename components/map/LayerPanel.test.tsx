@@ -105,6 +105,15 @@ describe('LayerPanel health measure', () => {
     expect(screen.getByText(/Social Vulnerability Index 2022/)).toBeInTheDocument();
   });
 
+  it('shows pound amounts with thousands separators and notes a log scale', () => {
+    renderPanel({ visible: healthOn, measureId: 'TRI_AIR_LBS' });
+
+    // The lowest county is 0, so there is no "≤" on the low end
+    expect(screen.getByText('0 lbs')).toBeInTheDocument();
+    expect(screen.getByText('450,000 lbs+')).toBeInTheDocument();
+    expect(screen.getByText(/on a log scale/)).toBeInTheDocument();
+  });
+
   it('groups measures by category in the picker', () => {
     renderPanel({ visible: healthOn });
 

@@ -6,14 +6,16 @@
 //   public/data/us-counties.geojson    Census county shapes (from the mapshaper step)
 //   data-raw/places-county-all.csv     CDC PLACES county data, all measures, age-adjusted
 //   data-raw/svi-2022-county.csv       CDC/ATSDR Social Vulnerability Index 2022, US counties
+//   public/data/tri-facilities.geojson EPA TRI facilities, tagged with county_fips (see "npm run data")
 //
-// Each dataset adds measures to the same county table. TRI totals come next.
+// Each dataset adds measures to the same county table.
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { parse } from 'csv-parse/sync';
 
 const SHAPES = 'public/data/us-counties.geojson';
 const PLACES_CSV = 'data-raw/places-county-all.csv';
 const SVI_CSV = 'data-raw/svi-2022-county.csv';
+const TRI_GEOJSON = 'public/data/tri-facilities.geojson';
 const OUT_COUNTIES = 'public/data/counties.geojson';
 const OUT_MEASURES = 'public/data/measures.json';
 
@@ -73,6 +75,8 @@ for (const r of placesRows) {
       year: Number(r.year),
       period: r.year,
       unit: r.data_value_unit || '%',
+      decimals: 1,
+      scale: 'linear',
       values: [],
     });
     placesMeasureIds.push(id);
@@ -128,6 +132,8 @@ for (const [id, short, name] of SVI_THEMES) {
     year: 2022,
     period: SVI_PERIOD,
     unit: '',
+    decimals: 2,
+    scale: 'linear',
     values: [],
   });
 }
@@ -142,6 +148,8 @@ for (const [id, short, name] of SVI_INDICATORS) {
     year: 2022,
     period: SVI_PERIOD,
     unit: '%',
+    decimals: 1,
+    scale: 'linear',
     values: [],
   });
 }
@@ -160,10 +168,63 @@ for (const r of sviRows) {
   for (const [id] of [...SVI_THEMES, ...SVI_INDICATORS]) addValue(id, fips, num(r[id]));
 }
 
-// ---------- Join onto the county shapes ----------
+// ---------- EPA Toxics Release Inventory, summed per county ----------
 
 const shapes = JSON.parse(readFileSync(SHAPES, 'utf8'));
 const shapeFips = new Set(shapes.features.map((f) => f.properties.GEOID));
+
+const tri = JSON.parse(readFileSync(TRI_GEOJSON, 'utf8'));
+if (!tri.features.some((f) => f.properties.county_fips)) {
+  throw new Error(
+    `${TRI_GEOJSON} has no county_fips yet. Run the mapshaper join step first (it's part of "npm run data").`
+  );
+}
+
+const TRI_SOURCE = 'EPA Toxics Release Inventory, 2024';
+const triMeasure = (id, short, name, valueType, unit, decimals) =>
+  measures.set(id, {
+    id,
+    name,
+    short,
+    category: 'Environment: Toxics Release Inventory',
+    source: TRI_SOURCE,
+    valueType,
+    year: 2024,
+    period: '2024',
+    unit,
+    decimals,
+    scale: 'log', // a few counties release millions of pounds; most release little or none
+    values: [],
+  });
+triMeasure('TRI_AIR_LBS', 'Toxic Air Releases', 'Reported toxic air releases (stack + fugitive)', 'Total pounds reported by TRI facilities in the county', ' lbs', 0);
+triMeasure('TRI_AIR_PER_1K', 'Toxic Air Releases per 1,000 Residents', 'Reported toxic air releases per 1,000 residents', 'Pounds per 1,000 residents (population: ACS 2018–2022)', ' lbs', 1);
+triMeasure('TRI_FACILITIES', 'TRI Facilities', 'Facilities reporting to the Toxics Release Inventory', 'Number of facilities in the county', '', 0);
+const triMeasureIds = ['TRI_AIR_LBS', 'TRI_AIR_PER_1K', 'TRI_FACILITIES'];
+
+const triByCounty = new Map(); // county FIPS -> { air, facilities }
+let triUnassigned = 0;
+for (const f of tri.features) {
+  const fips = f.properties.county_fips;
+  if (!fips) {
+    triUnassigned++;
+    continue;
+  }
+  const totals = triByCounty.get(fips) ?? { air: 0, facilities: 0 };
+  totals.air += Number(f.properties.air_lbs) || 0;
+  totals.facilities += 1;
+  triByCounty.set(fips, totals);
+}
+
+// Every county gets a value: no TRI facility means 0 pounds reported, not missing data
+for (const fips of shapeFips) {
+  const { air, facilities } = triByCounty.get(fips) ?? { air: 0, facilities: 0 };
+  addValue('TRI_AIR_LBS', fips, Math.round(air));
+  addValue('TRI_FACILITIES', fips, facilities);
+  const population = byCounty.get(fips)?.POP;
+  if (population) addValue('TRI_AIR_PER_1K', fips, Math.round((air / population) * 1000 * 10) / 10);
+}
+
+// ---------- Join onto the county shapes ----------
 
 let matched = 0;
 for (const feature of shapes.features) {
@@ -193,8 +254,11 @@ const placesList = all
   .filter((m) => placesMeasureIds.includes(m.id))
   .map(summarize)
   .sort((a, b) => a.category.localeCompare(b.category) || a.short.localeCompare(b.short));
-const sviList = all.filter((m) => !placesMeasureIds.includes(m.id)).map(summarize); // keep SVI's own order
-const measureList = [...placesList, ...sviList];
+const triList = all.filter((m) => triMeasureIds.includes(m.id)).map(summarize);
+const sviList = all // keep SVI's own order
+  .filter((m) => !placesMeasureIds.includes(m.id) && !triMeasureIds.includes(m.id))
+  .map(summarize);
+const measureList = [...placesList, ...triList, ...sviList];
 
 writeFileSync(OUT_COUNTIES, JSON.stringify(shapes));
 writeFileSync(OUT_MEASURES, JSON.stringify(measureList, null, 2));
@@ -207,11 +271,12 @@ const sviMatched = [...sviFips].filter((fips) => shapeFips.has(fips)).length;
 const mb = (path) => (statSync(path).size / 1e6).toFixed(1);
 const show = (list) =>
   list.forEach((m) =>
-    console.log(`  ${m.id.padEnd(12)} ${m.period.padEnd(9)} ${String(m.counties).padStart(4)}  ${m.p05}-${m.p95}${m.unit}  ${m.short}`)
+    console.log(`  ${m.id.padEnd(15)} ${m.period.padEnd(9)} ${String(m.counties).padStart(4)}  ${m.p05}-${m.p95}${m.unit}  ${m.short}`)
   );
 
 console.log(`PLACES rows read: ${placesRows.length}`);
 console.log(`SVI rows read: ${sviRows.length} (matched to county shapes: ${sviMatched})`);
+console.log(`TRI facilities: ${tri.features.length} (outside any county: ${triUnassigned}; counties with a facility: ${[...triByCounty.keys()].filter((f) => shapeFips.has(f)).length})`);
 console.log(`Counties in shapes file: ${shapes.features.length}`);
 console.log(`Counties with any data: ${matched}`);
 console.log(`Counties with population: ${shapes.features.filter((f) => f.properties.POP != null).length}`);
@@ -221,6 +286,9 @@ console.log(
 console.log('');
 console.log(`PLACES measures: ${placesList.length} (id, period, counties, 5th-95th percentile)`);
 show(placesList);
+console.log('');
+console.log(`TRI measures: ${triList.length}`);
+show(triList);
 console.log('');
 console.log(`SVI measures: ${sviList.length}`);
 show(sviList);

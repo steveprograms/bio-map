@@ -8,18 +8,29 @@ const asExpression = (e: unknown[]) => e as unknown as ExpressionSpecification;
 
 // ---------- Health measures ----------
 
-// Color stops for a measure: HEALTH_COLORS spread evenly from its 5th to 95th percentile.
+// The range the colors span, in the measure's own units: its 5th to 95th percentile.
 // Counties outside that range get the end colors, so a few extremes don't wash out the rest.
-export function measureStops(measure: Pick<Measure, 'p05' | 'p95'>): [number, string][] {
-  const low = measure.p05;
+export function colorRange(measure: Pick<Measure, 'p05' | 'p95'>) {
   // MapLibre needs strictly ascending stops, so guard against a measure with no spread
-  const high = measure.p95 > measure.p05 ? measure.p95 : measure.p05 + 1;
-  const step = (high - low) / (HEALTH_COLORS.length - 1);
-  return HEALTH_COLORS.map((color, i) => [low + i * step, color]);
+  return { low: measure.p05, high: measure.p95 > measure.p05 ? measure.p95 : measure.p05 + 1 };
 }
 
-export const measureColorExpr = (measure: Measure) =>
-  asExpression(['interpolate', ['linear'], ['get', measure.id], ...measureStops(measure).flat()]);
+// Log scales color by log10(value + 1), so 0 stays 0 and each step up is ten times more
+const toColorScale = (value: number, scale: Measure['scale']) =>
+  scale === 'log' ? Math.log10(value + 1) : value;
+
+// Color stops: HEALTH_COLORS spread evenly across the color range (on the measure's scale)
+export function measureStops(measure: Pick<Measure, 'p05' | 'p95' | 'scale'>): [number, string][] {
+  const { low, high } = colorRange(measure);
+  const start = toColorScale(low, measure.scale);
+  const step = (toColorScale(high, measure.scale) - start) / (HEALTH_COLORS.length - 1);
+  return HEALTH_COLORS.map((color, i) => [start + i * step, color]);
+}
+
+export const measureColorExpr = (measure: Measure) => {
+  const input = measure.scale === 'log' ? ['log10', ['+', ['get', measure.id], 1]] : ['get', measure.id];
+  return asExpression(['interpolate', ['linear'], input, ...measureStops(measure).flat()]);
+};
 
 // Filters: counties that have a value for the measure, and counties that don't
 export const hasValue = (measureId: string) => asExpression(['!=', ['get', measureId], null]);
