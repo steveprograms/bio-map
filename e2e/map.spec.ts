@@ -63,6 +63,46 @@ for (const key of Object.keys(LAYER_GROUPS) as LayerKey[]) {
   });
 }
 
+// Clicks the map at a longitude/latitude (converted to a screen position by the live map)
+async function clickLngLat(page: Page, lng: number, lat: number) {
+  const point = await page.evaluate(([x, y]) => {
+    const p = window.__usMap!.project([x, y]);
+    return { x: p.x, y: p.y };
+  }, [lng, lat]);
+  const box = await page.getByTestId('map').boundingBox();
+  await page.mouse.click(box!.x + point.x, box!.y + point.y);
+}
+
+test('clicking counties selects them, and they can be compared and removed', async ({ page }) => {
+  await openLoadedMap(page);
+
+  await clickLngLat(page, -87.75, 41.84); // Cook County, IL
+  const panel = page.getByRole('region', { name: 'Selected counties' });
+  await expect(panel.getByRole('article', { name: 'Cook, IL' })).toBeVisible();
+
+  await clickLngLat(page, -95.4, 29.85); // Harris County, TX
+  await expect(panel.getByRole('article')).toHaveCount(2);
+
+  // The map outlines exactly the selected counties
+  const outlined = () =>
+    page.evaluate(() => JSON.stringify(window.__usMap?.getFilter('county-selected')));
+  await expect.poll(outlined).toContain('17031');
+  await expect.poll(outlined).toContain('48201');
+
+  await panel.getByRole('button', { name: 'Compare' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Compare counties' });
+  await expect(dialog.getByRole('columnheader', { name: 'Harris, TX' })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog).toBeHidden();
+
+  await panel.getByRole('button', { name: 'Remove Cook, IL' }).click();
+  await expect(panel.getByRole('article')).toHaveCount(1);
+
+  // Clicking a selected county again unselects it
+  await clickLngLat(page, -95.4, 29.85);
+  await expect(panel).toBeHidden();
+});
+
 test('picking a different health measure recolors the map', async ({ page }) => {
   await openLoadedMap(page);
   await page.getByLabel(LAYER_LABELS.health, { exact: true }).check();

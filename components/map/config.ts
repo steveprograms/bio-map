@@ -53,6 +53,27 @@ export const formatValue = (value: number, measure: Pick<Measure, 'unit' | 'deci
     maximumFractionDigits: measure.decimals,
   })}${measure.unit}`;
 
+// ---------- County selection and comparison ----------
+
+export const MAX_SELECTED = 6;
+
+// One color per selected county (outline, number, card, and table column), in selection order
+export const SELECTION_COLORS = ['#1d4ed8', '#047857', '#7e22ce', '#be123c', '#0f172a', '#0e7490'];
+
+// Shown on every county card and in the compare table's "Key measures" view
+export const KEY_MEASURE_IDS = [
+  'CASTHMA',
+  'COPD',
+  'CSMOKING',
+  'OBESITY',
+  'GHLTH',
+  'TRI_AIR_PER_1K',
+  'TRI_FACILITIES',
+  'RPL_THEMES',
+  'EP_POV150',
+  'EP_UNINSUR',
+];
+
 // Sequential colors, light (low) to dark (high), spread from each measure's 5th to 95th percentile
 export const HEALTH_COLORS = ['#ffffd4', '#fed98e', '#fe9929', '#d95f0e', '#993404'];
 

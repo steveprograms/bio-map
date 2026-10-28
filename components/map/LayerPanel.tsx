@@ -66,6 +66,10 @@ export default function LayerPanel({ visible, onToggle, measures, measureId, onM
         {LAYER_LABELS.tri}
       </label>
       {visible.tri && <TriLegend />}
+
+      <div style={{ ...legendNote, marginTop: 10, borderTop: '1px solid #e2e8f0', paddingTop: 6 }}>
+        Click counties on the map to select and compare them.
+      </div>
     </div>
   );
 }

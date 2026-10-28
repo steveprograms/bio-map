@@ -75,3 +75,39 @@ export const sampleMeasures: Measure[] = [
     p95: 450000,
   },
 ];
+
+// A few counties, shaped like features from counties.geojson (geometry left out)
+export const sampleCountyFeatures = [
+  {
+    properties: {
+      GEOID: '54005',
+      NAME: 'Boone',
+      STUSPS: 'WV',
+      POP: 21457,
+      CASTHMA: 12.6,
+      CASTHMA_lo: 11,
+      CASTHMA_hi: 14.4,
+      CSMOKING: 27.9,
+      RPL_THEMES: 0.77,
+      TRI_AIR_LBS: 251000,
+    },
+  },
+  {
+    properties: {
+      GEOID: '01001',
+      NAME: 'Autauga',
+      STUSPS: 'AL',
+      POP: 58761,
+      CASTHMA: 10.1,
+      CASTHMA_lo: 9,
+      CASTHMA_hi: 11.3,
+      CSMOKING: 15.4,
+      RPL_THEMES: 0.42,
+      TRI_AIR_LBS: 0,
+    },
+  },
+  {
+    // Kentucky: no 2023 PLACES estimates
+    properties: { GEOID: '21001', NAME: 'Adair', STUSPS: 'KY', POP: 18887, RPL_THEMES: 0.7, TRI_AIR_LBS: 0 },
+  },
+];
