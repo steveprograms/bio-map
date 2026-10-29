@@ -143,10 +143,15 @@ function TriLegend() {
       {/* Skip the first heat color: it's fully transparent */}
       <div style={{ height: 10, borderRadius: 2, background: gradient(HEAT_COLORS.slice(1)) }} />
       <div style={rangeLabels}>
-        <span>Lower</span>
-        <span>Higher concentration</span>
+        <span>Less</span>
+        <span>More released nearby</span>
       </div>
-      <div style={{ fontSize: 11, marginTop: 8, marginBottom: 4 }}>Facilities (zoom in; size = air releases):</div>
+      <div style={{ fontSize: 11, marginTop: 4 }}>
+        Zoomed out: where reported air releases cluster, weighted by pounds (log scale). Not measured air quality.
+      </div>
+      <div style={{ fontSize: 11, marginTop: 8, marginBottom: 4 }}>
+        Zoomed in: one circle per facility. Size = its air releases; color = industry:
+      </div>
       {sectors.map(([sector, color]) => (
         <div key={sector} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
           <span style={{ width: 9, height: 9, borderRadius: '50%', background: color, display: 'inline-block' }} />
@@ -154,8 +159,8 @@ function TriLegend() {
         </div>
       ))}
       <div style={legendNote}>
-        Reported stack + fugitive air releases, {TRI_REPORTING_YEAR}. Click a facility for details. Source: EPA
-        Toxics Release Inventory.
+        Facility-reported stack + fugitive air releases, {TRI_REPORTING_YEAR}. Click a circle for details. Source:
+        EPA Toxics Release Inventory.
       </div>
     </div>
   );

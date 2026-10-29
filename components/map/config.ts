@@ -94,7 +94,7 @@ export type Visibility = 'visible' | 'none';
 // its internal name is kept so layer ids and tests stay stable.
 export const LAYER_LABELS: Record<LayerKey, string> = {
   health: 'County data',
-  tri: 'Toxic air releases (EPA TRI)',
+    tri: 'TRI facilities: air releases',
 };
 
 // Accessible name of the measure dropdown (also used by tests to find it)
