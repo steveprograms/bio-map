@@ -103,6 +103,66 @@ test('clicking counties selects them, and they can be compared and removed', asy
   await expect(panel).toBeHidden();
 });
 
+test('facility popups close with their × or a map click, without selecting a county', async ({ page }) => {
+  await openLoadedMap(page);
+  await page.getByLabel(LAYER_LABELS.tri, { exact: true }).check();
+ 
+  // Zoom in on the Houston Ship Channel, where there are many facilities, and wait for it to draw
+  await page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const map = window.__usMap!;
+        map.jumpTo({ center: [-95.1, 29.73], zoom: 10 });
+        map.once('idle', () => resolve(null));
+      })
+  );
+ 
+  // Screen positions: one facility, and one spot with no facility under it. Both must be
+  // spots where the map itself is on top (not under the layer panel or near an edge).
+  const spots = await page.evaluate(() => {
+    const map = window.__usMap!;
+    const canvas = map.getCanvas();
+    const rect = canvas.getBoundingClientRect();
+    const mapIsOnTop = (x: number, y: number) =>
+      x > 20 && y > 20 && x < rect.width - 20 && y < rect.height - 20 &&
+      document.elementFromPoint(rect.left + x, rect.top + y) === canvas;
+    const facilityAt = (x: number, y: number) =>
+      map.queryRenderedFeatures([x, y], { layers: ['tri-points'] }).length > 0;
+
+    const facility = map
+      .queryRenderedFeatures({ layers: ['tri-points'] })
+      .map((f) => map.project((f.geometry as unknown as { coordinates: [number, number] }).coordinates))
+      .find((p) => mapIsOnTop(p.x, p.y) && facilityAt(p.x, p.y))!;
+
+    const grid = [0.5, 0.4, 0.6, 0.3, 0.7, 0.8].flatMap((fx) =>
+      [0.75, 0.85, 0.65, 0.5].map((fy) => [fx * rect.width, fy * rect.height])
+    );
+    const empty = grid.find(([x, y]) => mapIsOnTop(x, y) && !facilityAt(x, y))!;
+
+    return { facility: { x: facility.x, y: facility.y }, empty: { x: empty[0], y: empty[1] } };
+  });
+  const box = (await page.getByTestId('map').boundingBox())!;
+  const click = (p: { x: number; y: number }) => page.mouse.click(box.x + p.x, box.y + p.y);
+  const popup = page.locator('.maplibregl-popup');
+ 
+  // Close with the × button
+  await click(spots.facility);
+  await expect(popup).toBeVisible();
+  await popup.getByRole('button', { name: 'Close popup' }).click();
+  await expect(popup).toBeHidden();
+ 
+  // Close by clicking elsewhere: that click only closes the popup
+  await click(spots.facility);
+  await expect(popup).toBeVisible();
+  await click(spots.empty);
+  await expect(popup).toBeHidden();
+  await expect(page.getByRole('region', { name: 'Selected counties' })).toBeHidden();
+ 
+  // With no popup open, a click selects a county as usual
+  await click(spots.empty);
+  await expect(page.getByRole('region', { name: 'Selected counties' })).toBeVisible();
+});
+
 test('picking a different health measure recolors the map', async ({ page }) => {
   await openLoadedMap(page);
   await page.getByLabel(LAYER_LABELS.health, { exact: true }).check();

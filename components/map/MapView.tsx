@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Map as MapLibreMap, NavigationControl, Popup, setWorkerUrl } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import './map.css';
 
 import {
   BASE_STYLE_URL,
@@ -145,17 +146,29 @@ export default function MapView() {
       belowLabels.forEach((layer) => map.addLayer(layer, firstSymbolId));
       aboveLabels.forEach((layer) => map.addLayer(layer));
 
-      // Click: a facility opens its popup; otherwise the county under the cursor is selected or unselected
+      // Click: a facility opens its popup. Otherwise, if a popup is open, the click only closes it
+      // (so closing a popup never selects a county by accident). Otherwise the county under the
+      // cursor is selected or unselected.
+      let openPopup: Popup | null = null;
       map.on('click', (e) => {
         if (map.getLayer(TRI_POINTS_LAYER_ID)) {
           const facility = map.queryRenderedFeatures(e.point, { layers: [TRI_POINTS_LAYER_ID] })[0];
           if (facility) {
-            new Popup({ maxWidth: '280px' })
+            openPopup?.remove();
+            const popup = new Popup({ maxWidth: '280px', className: 'tri-popup', closeOnClick: false })
               .setLngLat(e.lngLat)
               .setHTML(triPopupHtml(facility.properties ?? {}))
               .addTo(map);
+            popup.on('close', () => {
+              if (openPopup === popup) openPopup = null;
+            });
+            openPopup = popup;
             return;
           }
+        }
+        if (openPopup) {
+          openPopup.remove();
+          return;
         }
         const county = map.queryRenderedFeatures(e.point, { layers: [COUNTY_HIT_ID] })[0];
         if (county?.id !== undefined) toggleCounty(String(county.id));
