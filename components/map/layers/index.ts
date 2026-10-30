@@ -3,9 +3,9 @@
 //   2. add it to buildLayers below,
 //   3. if it should be toggleable, add it to LAYER_GROUPS and LAYER_LABELS in config.ts.
 import type { LayerSpecification } from 'maplibre-gl';
-import type { LayerKey, Measure, Visibility } from '../config';
+import type { LayerKey, Visibility } from '../config';
 import { boundaryLabelLayers, boundaryLineLayers } from './boundaries';
-import { healthLayers } from './health';
+import { healthLayers, type CountyFill } from './health';
 import { selectionLabelLayer, selectionLineLayers } from './selection';
 import { triHeatmapLayer, triPointsLayer } from './tri';
 
@@ -18,17 +18,17 @@ export function toVisibility(visible: Record<LayerKey, boolean>): Record<LayerKe
 interface BuildLayersOptions {
   visibility: Record<LayerKey, Visibility>;
   labelFont: string[];
-  measure?: Measure; // county data layers are left out if measures couldn't be loaded
+  fill?: CountyFill; // what the county data layer shows; left out if measures couldn't be loaded
   selected?: string[]; // FIPS codes of selected counties, in selection order
 }
 
-export function buildLayers({ visibility, labelFont, measure, selected = [] }: BuildLayersOptions): {
+export function buildLayers({ visibility, labelFont, fill, selected = [] }: BuildLayersOptions): {
   belowLabels: LayerSpecification[]; // inserted beneath the base map's labels, bottom first
   aboveLabels: LayerSpecification[]; // added on top of everything, bottom first
 } {
   return {
     belowLabels: [
-      ...(measure ? healthLayers(visibility.health, measure) : []),
+      ...(fill ? healthLayers(visibility.health, fill) : []),
       ...boundaryLineLayers(),
       triHeatmapLayer(visibility.tri),
       ...selectionLineLayers(selected),

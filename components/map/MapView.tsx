@@ -2,7 +2,7 @@
 
 // Creates the MapLibre map, adds the data sources and layers, and wires up the panels.
 // Layer definitions live in ./layers, colors and settings in ./config.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Map as MapLibreMap, NavigationControl, Popup, setWorkerUrl } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './map.css';
@@ -12,21 +12,24 @@ import {
   CONTINENTAL_US,
   DATA_SOURCES,
   DEFAULT_MEASURE_ID,
+  DEFAULT_PAIR,
   LAYER_GROUPS,
   MAX_SELECTED,
   MEASURES_URL,
   WORKER_URL,
+  type CountyMode,
   type LayerKey,
   type Measure,
+  type Pair,
 } from './config';
 import { buildCountyIndex, type CountyIndex } from './countyStats';
-import { hasValue, lacksValue, measureColorExpr } from './expressions';
 import { HATCH_IMAGE_ID, makeHatchPattern } from './hatchPattern';
 import { buildLayers, toVisibility } from './layers';
-import { HEALTH_FILL_ID, HEALTH_NO_DATA_ID } from './layers/health';
+import { applyCountyFill, countyFillFor, type CountyView } from './layers/health';
 import { COUNTY_HIT_ID, updateSelectionLayers } from './layers/selection';
 import { TRI_POINTS_LAYER_ID } from './layers/tri';
 import { triPopupHtml } from './popup';
+import { summarizePair } from './stats';
 import CompareTable from './CompareTable';
 import LayerPanel from './LayerPanel';
 import SelectionPanel from './SelectionPanel';
@@ -67,15 +70,28 @@ export default function MapView() {
   });
   const visibleRef = useRef(visible); // lets the load handler read the current toggle state
 
+  // What the county layer shows: one measure, or two at once (with an optional legend square alone)
   const [measures, setMeasures] = useState<Measure[]>([]);
+  const [countyMode, setCountyMode] = useState<CountyMode>('single');
   const [measureId, setMeasureId] = useState(DEFAULT_MEASURE_ID);
-  const measureIdRef = useRef(measureId); // same idea as visibleRef
+  const [pair, setPair] = useState<Pair>(DEFAULT_PAIR);
+  const [pairCell, setPairCell] = useState<number | null>(null);
 
   // The county table in memory (for cards and comparisons) and the selected counties
   const [countyIndex, setCountyIndex] = useState<CountyIndex | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const selectedRef = useRef(selected);
   const [comparing, setComparing] = useState(false);
+
+  // Thirds, counts, and correlation for the two-measure map (recomputed when the pair changes)
+  const pairSummary = useMemo(
+    () => (countyIndex ? summarizePair(countyIndex, pair.xId, pair.yId) : null),
+    [countyIndex, pair]
+  );
+  const view: CountyView = { mode: countyMode, measureId, pair, cell: pairCell };
+  const fill = countyFillFor(measures, view, pairSummary);
+  // The measure(s) the county layer is showing, for the cards and compare table
+  const mapMeasureIds = fill?.kind === 'pair' ? [fill.y.id, fill.x.id] : fill ? [fill.measure.id] : [];
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -115,8 +131,8 @@ export default function MapView() {
       setMeasures(measureList);
       if (counties) setCountyIndex(buildCountyIndex(counties.features, measureList));
 
-      const measure = measureList.find((m) => m.id === measureIdRef.current) ?? measureList[0];
-      if (measure && measure.id !== measureIdRef.current) setMeasureId(measure.id);
+      // Start with the default measure; the effect below switches to whatever the panel shows
+      const firstMeasure = measureList.find((m) => m.id === DEFAULT_MEASURE_ID) ?? measureList[0];
 
       // Our layers go beneath the base map's labels so city names stay readable
       const firstSymbolId = map.getStyle().layers.find((l) => l.type === 'symbol')?.id;
@@ -140,7 +156,7 @@ export default function MapView() {
       const { belowLabels, aboveLabels } = buildLayers({
         visibility: toVisibility(visibleRef.current),
         labelFont,
-        measure,
+        fill: firstMeasure && { kind: 'single', measure: firstMeasure },
         selected: selectedRef.current,
       });
       belowLabels.forEach((layer) => map.addLayer(layer, firstSymbolId));
@@ -195,7 +211,7 @@ export default function MapView() {
       // can find counties (end-to-end tests wait for this)
       map.once('idle', () => {
         if (!cancelled) setMapLoaded(true);
-      });    
+      });
     });
 
     return () => {
@@ -219,16 +235,14 @@ export default function MapView() {
     }
   }, [visible]);
 
-  // Recolor the county layer whenever a different measure is picked
+  // Recolor the county layer whenever the panel's choices change. JSON comparison skips
+  // re-renders that don't change what's drawn.
+  const fillKey = JSON.stringify(fill);
   useEffect(() => {
-    measureIdRef.current = measureId;
     const map = mapRef.current;
-    const measure = measures.find((m) => m.id === measureId);
-    if (!map || !measure || !map.getLayer(HEALTH_FILL_ID)) return;
-    map.setPaintProperty(HEALTH_FILL_ID, 'fill-color', measureColorExpr(measure));
-    map.setFilter(HEALTH_FILL_ID, hasValue(measure.id));
-    map.setFilter(HEALTH_NO_DATA_ID, lacksValue(measure.id));
-  }, [measureId, measures]);
+    if (map && fill) applyCountyFill(map, fill);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fillKey, mapLoaded]);
 
   // Redraw the selection outlines and numbers whenever the selection changes
   useEffect(() => {
@@ -239,10 +253,17 @@ export default function MapView() {
 
   const toggle = (key: LayerKey) => setVisible((v) => ({ ...v, [key]: !v[key] }));
 
-  // From the compare table: show a measure on the map (and turn the county layer on)
+  // From the compare table: show a measure on the map by itself (and turn the county layer on)
   const showMeasure = (id: string) => {
     setMeasureId(id);
+    setCountyMode('single');
     setVisible((v) => ({ ...v, health: true }));
+  };
+
+  // A new pair gets new thirds, so any legend square shown alone no longer applies
+  const changePair = (next: Pair) => {
+    setPair(next);
+    setPairCell(null);
   };
 
   return (
@@ -253,14 +274,21 @@ export default function MapView() {
         visible={visible}
         onToggle={toggle}
         measures={measures}
+        countyMode={countyMode}
+        onCountyModeChange={setCountyMode}
         measureId={measureId}
         onMeasureChange={setMeasureId}
+        pair={pair}
+        onPairChange={changePair}
+        pairCell={pairCell}
+        onPairCellChange={setPairCell}
+        pairSummary={pairSummary}
       />
       <SelectionPanel
         selected={selected}
         index={countyIndex}
         measures={measures}
-        measureId={measureId}
+        mapMeasureIds={mapMeasureIds}
         onRemove={(fips) => setSelected((current) => current.filter((f) => f !== fips))}
         onClear={() => setSelected([])}
         onCompare={() => setComparing(true)}
@@ -270,7 +298,7 @@ export default function MapView() {
           selected={selected}
           index={countyIndex}
           measures={measures}
-          measureId={measureId}
+          mapMeasureIds={mapMeasureIds}
           onMeasureChange={showMeasure}
           onClose={() => setComparing(false)}
         />

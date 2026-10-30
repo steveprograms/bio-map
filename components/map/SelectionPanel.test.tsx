@@ -13,7 +13,7 @@ function renderPanel(overrides: Partial<Parameters<typeof SelectionPanel>[0]> = 
     selected: ['54005', '21001'],
     index,
     measures: sampleMeasures,
-    measureId: 'CASTHMA',
+    mapMeasureIds: ['CASTHMA'],
     onRemove: vi.fn(),
     onClear: vi.fn(),
     onCompare: vi.fn(),
@@ -83,5 +83,13 @@ describe('SelectionPanel', () => {
   it('says the data is loading before it arrives', () => {
     renderPanel({ index: null });
     expect(screen.getByText('Loading county data…')).toBeInTheDocument();
+  });
+
+  it('shows both map measures in two-measure mode', () => {
+    renderPanel({ mapMeasureIds: ['CASTHMA', 'CSMOKING'] });
+    const boone = screen.getByRole('article', { name: 'Boone, WV' });
+    const onMap = within(boone).getByText('On the map').parentElement!;
+    expect(within(onMap).getByText('Current Asthma')).toBeInTheDocument();
+    expect(within(onMap).getByText('Current Smoking')).toBeInTheDocument();
   });
 });

@@ -83,6 +83,28 @@ export const KEY_MEASURE_IDS = [
   'EP_UNINSUR',
 ];
 
+// ---------- Two-measure (bivariate) map ----------
+
+export type CountyMode = 'single' | 'pair';
+export interface Pair {
+  xId: string; // measure going across (columns), usually an exposure
+  yId: string; // measure going up (rows), usually an outcome
+}
+export const DEFAULT_PAIR: Pair = { xId: 'PM25_AVG', yId: 'CASTHMA' };
+export const PAIR_LEVELS = ['Low', 'Middle', 'High'];
+
+// PAIR_COLORS[row][column]: row = third of the "up" measure, column = third of the "across" measure,
+// low to high. Low/low is light gray, high/high dark blue.
+export const PAIR_COLORS = [
+  ['#e8e8e8', '#ace4e4', '#5ac8c8'],
+  ['#dfb0d6', '#a5add3', '#5698b9'],
+  ['#be64ac', '#8c62aa', '#3b4994'],
+];
+
+// Accessible names of the panel controls (also used by tests to find them)
+export const COUNTY_MODE_LABELS: Record<CountyMode, string> = { single: 'One measure', pair: 'Two measures' };
+export const PAIR_PICKER_LABELS = { y: 'Measure going up', x: 'Measure going across' };
+
 // Sequential colors, light (low) to dark (high), spread from each measure's 5th to 95th percentile
 export const HEALTH_COLORS = ['#ffffd4', '#fed98e', '#fe9929', '#d95f0e', '#993404'];
 

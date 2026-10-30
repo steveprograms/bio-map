@@ -12,7 +12,7 @@ interface CountyCardProps {
   color: string;
   index: CountyIndex;
   measures: Measure[];
-  measureId: string; // the measure shown on the map
+  mapMeasureIds: string[]; // the measure(s) shown on the map: one, or two in two-measure mode
   onRemove: (fips: string) => void;
 }
 
@@ -38,12 +38,12 @@ export const badgeStyle = (color: string): CSSProperties => ({
   flexShrink: 0,
 });
 
-export default function CountyCard({ fips, number, color, index, measures, measureId, onRemove }: CountyCardProps) {
+export default function CountyCard({ fips, number, color, index, measures, mapMeasureIds, onRemove }: CountyCardProps) {
   const props = index.byFips.get(fips);
   const label = countyLabel(props, `County ${fips}`);
   const byId = new Map(measures.map((m) => [m.id, m]));
-  const mapMeasure = byId.get(measureId);
-  const keyMeasures = KEY_MEASURE_IDS.filter((id) => id !== measureId)
+  const mapMeasures = mapMeasureIds.map((id) => byId.get(id)).filter((m): m is Measure => m !== undefined);
+  const keyMeasures = KEY_MEASURE_IDS.filter((id) => !mapMeasureIds.includes(id))
     .map((id) => byId.get(id))
     .filter((m): m is Measure => m !== undefined);
   const population = measureValue(props, 'POP');
@@ -66,10 +66,12 @@ export default function CountyCard({ fips, number, color, index, measures, measu
         Population {population !== null ? population.toLocaleString('en-US') : 'not available'} · FIPS {fips}
       </div>
 
-      {mapMeasure && (
+      {mapMeasures.length > 0 && (
         <div style={{ marginTop: 8, padding: '6px 8px', background: '#f8fafc', borderRadius: 6 }}>
           <div style={{ fontSize: 10, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.4 }}>On the map</div>
-          <MeasureRow measure={mapMeasure} props={props} index={index} showInterval />
+          {mapMeasures.map((m) => (
+            <MeasureRow key={m.id} measure={m} props={props} index={index} showInterval />
+          ))}
         </div>
       )}
 

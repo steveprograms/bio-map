@@ -13,7 +13,7 @@ function renderTable(overrides: Partial<Parameters<typeof CompareTable>[0]> = {}
     selected: ['54005', '01001'],
     index,
     measures: sampleMeasures,
-    measureId: 'CASTHMA',
+    mapMeasureIds: ['CASTHMA'],
     onMeasureChange: vi.fn(),
     onClose: vi.fn(),
     ...overrides,
@@ -33,13 +33,13 @@ describe('CompareTable', () => {
   });
 
   it('starts with key measures plus the measure shown on the map', () => {
-    renderTable({ measureId: 'CASTHMA' });
+    renderTable({ mapMeasureIds: ['CASTHMA'] });
     const expected = sampleMeasures.filter((m) => KEY_MEASURE_IDS.includes(m.id) || m.id === 'CASTHMA');
     expect(expected.length).toBeLessThan(sampleMeasures.length); // so the next test shows a difference
     expect(measureRows()).toHaveLength(expected.length);
 
     // The map measure is included even when it isn't a key measure
-    renderTable({ measureId: 'TRI_AIR_LBS' });
+    renderTable({ mapMeasureIds: ['TRI_AIR_LBS'] });
     expect(screen.getAllByRole('button', { name: 'Toxic Air Releases' }).length).toBeGreaterThan(0);
   });
 

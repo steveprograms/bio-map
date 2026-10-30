@@ -1,6 +1,7 @@
 // MapLibre expressions used by the layers.
 import type { ExpressionSpecification } from 'maplibre-gl';
-import { HEALTH_COLORS, HEAT_COLORS, OTHER_SECTOR_COLOR, SECTOR_COLORS, type Measure } from './config';
+import { HEALTH_COLORS, HEAT_COLORS, OTHER_SECTOR_COLOR, PAIR_COLORS, SECTOR_COLORS, type Measure } from './config';
+import type { Cuts } from './stats';
 
 // TypeScript can't verify the shape of expressions built by spreading arrays,
 // so we tell it these are valid expressions. layers.test.ts checks them for real.
@@ -35,6 +36,35 @@ export const measureColorExpr = (measure: Measure) => {
 // Filters: counties that have a value for the measure, and counties that don't
 export const hasValue = (measureId: string) => asExpression(['!=', ['get', measureId], null]);
 export const lacksValue = (measureId: string) => asExpression(['==', ['get', measureId], null]);
+
+// ---------- Two measures (bivariate) ----------
+
+// A county's third (0 low, 1 middle, 2 high) on one measure. Must match binOf in stats.ts.
+export const pairBinExpr = (measureId: string, cuts: Cuts) =>
+  asExpression(['case', ['<=', ['get', measureId], cuts[0]], 0, ['<=', ['get', measureId], cuts[1]], 1, 2]);
+
+// Wraps an expression that can use "cell": the county's square in the 3×3 grid (0-8, same as cellOf)
+const withCell = (xId: string, yId: string, xCuts: Cuts, yCuts: Cuts, body: unknown[]) =>
+  asExpression([
+    'let', 'xb', pairBinExpr(xId, xCuts), 'yb', pairBinExpr(yId, yCuts),
+    ['let', 'cell', ['+', ['var', 'xb'], ['*', 3, ['var', 'yb']]], body],
+  ]);
+
+export const pairColorExpr = (xId: string, yId: string, xCuts: Cuts, yCuts: Cuts) =>
+  withCell(xId, yId, xCuts, yCuts, [
+    'match', ['var', 'cell'],
+    ...PAIR_COLORS.flatMap((row, yb) => row.flatMap((color, xb) => [xb + 3 * yb, color])),
+    '#000000',
+  ]);
+
+// With a legend square chosen, its counties stay solid and the rest fade
+export const pairOpacityExpr = (xId: string, yId: string, xCuts: Cuts, yCuts: Cuts, cell: number | null) =>
+  cell === null ? 0.85 : withCell(xId, yId, xCuts, yCuts, ['case', ['==', ['var', 'cell'], cell], 0.9, 0.12]);
+
+export const hasAllValues = (ids: string[]) =>
+  asExpression(['all', ...ids.map((id) => ['!=', ['get', id], null])]);
+export const lacksAnyValue = (ids: string[]) =>
+  asExpression(['any', ...ids.map((id) => ['==', ['get', id], null])]);
 
 // ---------- TRI ----------
 

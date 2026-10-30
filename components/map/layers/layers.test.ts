@@ -4,20 +4,34 @@ import type { LayerSpecification } from 'maplibre-gl';
 import { DATA_SOURCES, HEALTH_COLORS, HEAT_COLORS, LAYER_GROUPS, type LayerKey, type Measure } from '../config';
 import { measureStops } from '../expressions';
 import { sampleMeasures } from '../test-fixtures';
+import type { PairSummary } from '../stats';
+import { countyFillFor, type CountyFill } from './health';
 import { buildLayers, toVisibility } from './index';
 import { selectedColorExpr, selectedNumberExpr, selectionColor } from './selection';
 
 const LABEL_FONT = ['Noto Sans Regular'];
 
+const single = (measure: Measure | undefined): CountyFill | undefined => measure && { kind: 'single', measure };
+
+// Two measures: Current Asthma going up, Current Smoking going across
+const pairFill = (cell: number | null): CountyFill => ({
+  kind: 'pair',
+  x: sampleMeasures[1],
+  y: sampleMeasures[0],
+  xCuts: [15, 20],
+  yCuts: [9.5, 10.5],
+  cell,
+});
+
 function allLayers(
   visible: Record<LayerKey, boolean> = { health: true, tri: true },
-  measure: Measure | undefined = sampleMeasures[0],
+  fill: CountyFill | undefined = single(sampleMeasures[0]),
   selected: string[] = []
 ) {
   const { belowLabels, aboveLabels } = buildLayers({
     visibility: toVisibility(visible),
     labelFont: LABEL_FONT,
-    measure,
+    fill,
     selected,
   });
   return [...belowLabels, ...aboveLabels];
@@ -44,9 +58,16 @@ describe('map layers', () => {
   it.each(sampleMeasures.map((m) => [m.id, m] as const))(
     'pass MapLibre style validation with %s selected',
     (_id, measure) => {
-      expect(validationErrors(allLayers(undefined, measure))).toEqual([]);
+      expect(validationErrors(allLayers(undefined, single(measure)))).toEqual([]);
     }
   );
+
+  it.each<[string, number | null]>([
+    ['every square', null],
+    ['one square alone', 4],
+  ])('pass MapLibre style validation with two measures, showing %s', (_label, cell) => {
+    expect(validationErrors(allLayers(undefined, pairFill(cell)))).toEqual([]);
+  });
 
   it.each<[string, string[]]>([
     ['no counties', []],
@@ -78,9 +99,19 @@ describe('map layers', () => {
   });
 
   it('color the county layer by the selected measure', () => {
-    const fill = allLayers(undefined, sampleMeasures[1]).find((layer) => layer.id === 'health-fill');
+    const fill = allLayers(undefined, single(sampleMeasures[1])).find((layer) => layer.id === 'health-fill');
     expect(JSON.stringify(fill)).toContain('"CSMOKING"');
     expect(JSON.stringify(fill)).not.toContain('"CASTHMA"');
+  });
+
+  it('color and filter the county layer by both measures in two-measure mode', () => {
+    const layers = allLayers(undefined, pairFill(null));
+    const fill = JSON.stringify(layers.find((layer) => layer.id === 'health-fill'));
+    expect(fill).toContain('"CSMOKING"');
+    expect(fill).toContain('"CASTHMA"');
+    expect(fill).toContain('#3b4994'); // high/high color
+    // Counties missing either value get the hatch
+    expect(JSON.stringify(layers.find((layer) => layer.id === 'health-no-data'))).toContain('"any"');
   });
 
   it('leave out the county data layers when no measure is available, but keep selection', () => {
@@ -131,7 +162,7 @@ describe('measureStops', () => {
 
 describe('color expressions', () => {
   it('color log-scale measures by log10(value + 1)', () => {
-    const fill = allLayers(undefined, sampleMeasures.find((m) => m.scale === 'log')).find(
+    const fill = allLayers(undefined, single(sampleMeasures.find((m) => m.scale === 'log'))).find(
       (layer) => layer.id === 'health-fill'
     );
     expect(JSON.stringify(fill)).toContain('["log10",["+",["get","TRI_AIR_LBS"],1]]');
@@ -143,5 +174,35 @@ describe('heatmap colors', () => {
   it('are in ascending order of density', () => {
     const values = HEAT_COLORS.map(([value]) => value);
     expect(values).toEqual([...values].sort((a, b) => a - b));
+  });
+});
+
+describe('countyFillFor', () => {
+  const summary: PairSummary = { n: 100, r: 0.3, xCuts: [15, 20], yCuts: [9.5, 10.5], counts: new Array(9).fill(0) };
+  const view = { mode: 'single' as const, measureId: 'CSMOKING', pair: { xId: 'CSMOKING', yId: 'CASTHMA' }, cell: null };
+
+  it('shows the picked measure in one-measure mode', () => {
+    expect(countyFillFor(sampleMeasures, view, null)).toMatchObject({ kind: 'single', measure: { id: 'CSMOKING' } });
+  });
+
+  it('uses the thirds from the summary in two-measure mode', () => {
+    expect(countyFillFor(sampleMeasures, { ...view, mode: 'pair', cell: 8 }, summary)).toMatchObject({
+      kind: 'pair',
+      x: { id: 'CSMOKING' },
+      y: { id: 'CASTHMA' },
+      xCuts: [15, 20],
+      yCuts: [9.5, 10.5],
+      cell: 8,
+    });
+  });
+
+  it('falls back to the "up" measure alone until there are enough counties with both values', () => {
+    const pairView = { ...view, mode: 'pair' as const };
+    expect(countyFillFor(sampleMeasures, pairView, null)).toMatchObject({ kind: 'single', measure: { id: 'CASTHMA' } });
+    expect(countyFillFor(sampleMeasures, pairView, { ...summary, n: 2 })).toMatchObject({ kind: 'single' });
+  });
+
+  it('is undefined before measures load', () => {
+    expect(countyFillFor([], view, null)).toBeUndefined();
   });
 });

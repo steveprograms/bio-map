@@ -2,11 +2,14 @@
 // These need an internet connection, since the base map comes from OpenFreeMap.
 import { expect, test, type Page } from '@playwright/test';
 import {
+  COUNTY_MODE_LABELS,
   DATA_SOURCES,
+  DEFAULT_PAIR,
   LAYER_GROUPS,
   LAYER_LABELS,
   MEASURE_PICKER_LABEL,
   MEASURES_URL,
+  PAIR_COLORS,
   WORKER_URL,
   type LayerKey,
 } from '../components/map/config';
@@ -106,7 +109,7 @@ test('clicking counties selects them, and they can be compared and removed', asy
 test('facility popups close with their × or a map click, without selecting a county', async ({ page }) => {
   await openLoadedMap(page);
   await page.getByLabel(LAYER_LABELS.tri, { exact: true }).check();
- 
+
   // Zoom in on the Houston Ship Channel, where there are many facilities, and wait for it to draw
   await page.evaluate(
     () =>
@@ -116,7 +119,7 @@ test('facility popups close with their × or a map click, without selecting a co
         map.once('idle', () => resolve(null));
       })
   );
- 
+
   // Screen positions: one facility, and one spot with no facility under it. Both must be
   // spots where the map itself is on top (not under the layer panel or near an edge).
   const spots = await page.evaluate(() => {
@@ -144,20 +147,20 @@ test('facility popups close with their × or a map click, without selecting a co
   const box = (await page.getByTestId('map').boundingBox())!;
   const click = (p: { x: number; y: number }) => page.mouse.click(box.x + p.x, box.y + p.y);
   const popup = page.locator('.maplibregl-popup');
- 
+
   // Close with the × button
   await click(spots.facility);
   await expect(popup).toBeVisible();
   await popup.getByRole('button', { name: 'Close popup' }).click();
   await expect(popup).toBeHidden();
- 
+
   // Close by clicking elsewhere: that click only closes the popup
   await click(spots.facility);
   await expect(popup).toBeVisible();
   await click(spots.empty);
   await expect(popup).toBeHidden();
   await expect(page.getByRole('region', { name: 'Selected counties' })).toBeHidden();
- 
+
   // With no popup open, a click selects a county as usual
   await click(spots.empty);
   await expect(page.getByRole('region', { name: 'Selected counties' })).toBeVisible();
@@ -177,4 +180,30 @@ test('picking a different health measure recolors the map', async ({ page }) => 
   const fillColor = () =>
     page.evaluate(() => JSON.stringify(window.__usMap?.getPaintProperty('health-fill', 'fill-color')));
   await expect.poll(fillColor).toContain(`"${other}"`);
+});
+
+test('two-measure mode colors counties by both measures and can show one legend square alone', async ({ page }) => {
+  await openLoadedMap(page);
+  await page.getByLabel(LAYER_LABELS.health, { exact: true }).check();
+  await page.getByRole('button', { name: COUNTY_MODE_LABELS.pair }).click();
+
+  const paint = (property: string) =>
+    page.evaluate((p) => JSON.stringify(window.__usMap?.getPaintProperty('health-fill', p)), property);
+
+  // The fill now uses both default measures and the 3×3 colors
+  await expect.poll(() => paint('fill-color')).toContain(`"${DEFAULT_PAIR.xId}"`);
+  const color = await paint('fill-color');
+  expect(color).toContain(`"${DEFAULT_PAIR.yId}"`);
+  expect(color).toContain(PAIR_COLORS[2][2]);
+  await expect(page.getByText(/counties have both values/)).toBeVisible();
+
+  // Clicking the top-right legend square fades every other square's counties
+  await page.getByRole('group', { name: 'Legend squares' }).getByRole('button').nth(2).click();
+  await expect.poll(() => paint('fill-opacity')).toContain('0.12');
+  await page.getByRole('button', { name: 'Show all squares' }).click();
+  await expect.poll(() => paint('fill-opacity')).toBe('0.85');
+
+  // Back to one measure
+  await page.getByRole('button', { name: COUNTY_MODE_LABELS.single }).click();
+  await expect.poll(() => paint('fill-color')).not.toContain(PAIR_COLORS[2][2]);
 });

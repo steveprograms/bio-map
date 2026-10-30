@@ -11,7 +11,7 @@ interface CompareTableProps {
   selected: string[];
   index: CountyIndex;
   measures: Measure[];
-  measureId: string; // the measure shown on the map; always included
+  mapMeasureIds: string[]; // the measure(s) shown on the map; always included and outlined
   onMeasureChange: (measureId: string) => void;
   onClose: () => void;
 }
@@ -50,7 +50,7 @@ const toggleStyle = (active: boolean): CSSProperties => ({
   cursor: 'pointer',
 });
 
-export default function CompareTable({ selected, index, measures, measureId, onMeasureChange, onClose }: CompareTableProps) {
+export default function CompareTable({ selected, index, measures, mapMeasureIds, onMeasureChange, onClose }: CompareTableProps) {
   const [showAll, setShowAll] = useState(false);
 
   // Escape closes the comparison
@@ -60,7 +60,7 @@ export default function CompareTable({ selected, index, measures, measureId, onM
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const rows = showAll ? measures : measures.filter((m) => KEY_MEASURE_IDS.includes(m.id) || m.id === measureId);
+  const rows = showAll ? measures : measures.filter((m) => KEY_MEASURE_IDS.includes(m.id) || mapMeasureIds.includes(m.id));
   const categories = [...new Set(rows.map((m) => m.category))];
 
   return (
@@ -137,7 +137,7 @@ export default function CompareTable({ selected, index, measures, measureId, onM
                   {rows
                     .filter((m) => m.category === category)
                     .map((m) => (
-                      <tr key={m.id} style={m.id === measureId ? { outline: '2px solid #fe9929' } : undefined}>
+                      <tr key={m.id} style={mapMeasureIds.includes(m.id) ? { outline: '2px solid #fe9929' } : undefined}>
                         <th scope="row" style={{ ...cellStyle, textAlign: 'left', fontWeight: 400 }}>
                           <button
                             type="button"

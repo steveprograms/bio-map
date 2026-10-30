@@ -11,7 +11,7 @@ interface SelectionPanelProps {
   selected: string[]; // FIPS codes, in selection order
   index: CountyIndex | null; // null while the county data is loading
   measures: Measure[];
-  measureId: string;
+  mapMeasureIds: string[]; // the measure(s) shown on the map
   onRemove: (fips: string) => void;
   onClear: () => void;
   onCompare: () => void;
@@ -45,7 +45,7 @@ export default function SelectionPanel({
   selected,
   index,
   measures,
-  measureId,
+  mapMeasureIds,
   onRemove,
   onClear,
   onCompare,
@@ -82,7 +82,7 @@ export default function SelectionPanel({
             color={selectionColor(i)}
             index={index}
             measures={measures}
-            measureId={measureId}
+            mapMeasureIds={mapMeasureIds}
             onRemove={onRemove}
           />
         ))
