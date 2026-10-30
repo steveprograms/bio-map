@@ -9,6 +9,8 @@
 //   public/data/tri-facilities.geojson EPA TRI facilities, tagged with county_fips (see "npm run data")
 //   data-raw/pm25-county-year*.csv     CDC Tracking Network modeled PM2.5, summarized per county and year
 //   data-raw/ozone-county-year*.csv    CDC Tracking Network modeled ozone, summarized per county and year
+//   data-raw/ct-towns-2020.json        Connecticut town populations with their old counties (2020 Census)
+//   data-raw/ct-towns-2022.json        Connecticut towns with their planning regions (2022 Census data)
 //
 // Each dataset adds measures to the same county table.
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -18,6 +20,8 @@ const SHAPES = 'public/data/us-counties.geojson';
 const PLACES_CSV = 'data-raw/places-county-all.csv';
 const SVI_CSV = 'data-raw/svi-2022-county.csv';
 const TRI_GEOJSON = 'public/data/tri-facilities.geojson';
+const CT_TOWNS_2020 = 'data-raw/ct-towns-2020.json';
+const CT_TOWNS_2022 = 'data-raw/ct-towns-2022.json';
 const AIR_FILES = {
   pm25: { means: 'data-raw/pm25-county-year.csv', highDays: 'data-raw/pm25-county-year-high.csv' },
   ozone: { means: 'data-raw/ozone-county-year.csv', highDays: 'data-raw/ozone-county-year-high.csv' },
@@ -239,6 +243,71 @@ for (const fips of shapeFips) {
   if (population) addValue('TRI_AIR_PER_1K', fips, Math.round((air / population) * 1000 * 10) / 10);
 }
 
+// ---------- Connecticut: old counties -> planning regions ----------
+
+// In 2022 Connecticut replaced its 8 counties (09001-09015) with 9 planning regions (09110-09190).
+// Our county shapes use the regions; some datasets still use the old counties. Towns kept their
+// codes and each sits in exactly one old county and one region, so town populations give
+// population weights for translating old-county values to regions.
+
+// Census API files are a header row followed by data rows
+const readCensusJson = (path) => {
+  const [header, ...rows] = JSON.parse(readFileSync(path, 'utf8'));
+  return rows.map((row) => Object.fromEntries(header.map((name, i) => [name, row[i]])));
+};
+
+const ct = (() => {
+  const regionOfTown = new Map(
+    readCensusJson(CT_TOWNS_2022).map((r) => [r['county subdivision'], `09${r.county}`])
+  );
+  const weights = new Map(); // region FIPS -> Map(old county FIPS -> population)
+  let towns = 0;
+  const unmatchedTowns = [];
+  for (const r of readCensusJson(CT_TOWNS_2020)) {
+    const population = Number(r.P1_001N);
+    if (!population) continue; // skips "county subdivisions not defined"
+    const region = regionOfTown.get(r['county subdivision']);
+    if (!region) {
+      unmatchedTowns.push(r['county subdivision']);
+      continue;
+    }
+    towns++;
+    const regionWeights = weights.get(region) ?? new Map();
+    const oldCounty = `09${r.county}`;
+    regionWeights.set(oldCounty, (regionWeights.get(oldCounty) ?? 0) + population);
+    weights.set(region, regionWeights);
+  }
+  return { weights, towns, unmatchedTowns };
+})();
+
+const isOldCtCounty = (fips) => /^090(0[1-9]|1[0-5])$/.test(fips);
+
+// A planning region's value: the population-weighted average of its old counties' values.
+// valueOf(oldCountyFips) returns a number, or null when that county has no value.
+function ctRegionValue(region, valueOf) {
+  let sum = 0;
+  let population = 0;
+  for (const [oldCounty, weight] of ct.weights.get(region) ?? []) {
+    const value = valueOf(oldCounty);
+    if (value === null || value === undefined) continue;
+    sum += value * weight;
+    population += weight;
+  }
+  return population ? sum / population : null;
+}
+
+// Copies of a { county FIPS -> value } map with Connecticut translated: old counties are
+// replaced by planning regions (regions that already have a value keep it)
+function withCtRegions(valuesByFips) {
+  const result = new Map([...valuesByFips].filter(([fips]) => !isOldCtCounty(fips)));
+  for (const region of ct.weights.keys()) {
+    if (result.has(region)) continue;
+    const value = ctRegionValue(region, (old) => valuesByFips.get(old) ?? null);
+    if (value !== null) result.set(region, value);
+  }
+  return result;
+}
+
 // ---------- Modeled air quality (CDC Tracking Network, EPA Downscaler model) ----------
 
 // The downloads hold one row per county per year: the average of that year's daily
@@ -325,10 +394,15 @@ for (const air of AIR_MEASURES) {
     values: [], // each measure needs its own list
   });
 
+  // Per-county values, then Connecticut's old counties translated to planning regions
+  const averages = new Map();
+  const highPerYear = new Map();
   for (const [fips, t] of totals) {
-    addValue(air.avgId, fips, Math.round((t.sum / t.days) * 10) / 10);
-    addValue(air.highId, fips, Math.round(((highDays.get(fips) ?? 0) / t.years) * 10) / 10);
+    averages.set(fips, t.sum / t.days);
+    highPerYear.set(fips, (highDays.get(fips) ?? 0) / t.years);
   }
+  for (const [fips, value] of withCtRegions(averages)) addValue(air.avgId, fips, Math.round(value * 10) / 10);
+  for (const [fips, value] of withCtRegions(highPerYear)) addValue(air.highId, fips, Math.round(value * 10) / 10);
 }
 
 // ---------- Join onto the county shapes ----------
@@ -385,6 +459,10 @@ const show = (list) =>
 console.log(`PLACES rows read: ${placesRows.length}`);
 console.log(`SVI rows read: ${sviRows.length} (matched to county shapes: ${sviMatched})`);
 console.log(`TRI facilities: ${tri.features.length} (outside any county: ${triUnassigned}; counties with a facility: ${[...triByCounty.keys()].filter((f) => shapeFips.has(f)).length})`);
+console.log(
+  `Connecticut crosswalk: ${ct.towns} towns placed in ${ct.weights.size} planning regions` +
+    (ct.unmatchedTowns.length ? `; towns with no region: ${ct.unmatchedTowns.join(', ')}` : '')
+);
 console.log(`Counties in shapes file: ${shapes.features.length}`);
 console.log(`Counties with any data: ${matched}`);
 console.log(`Counties with population: ${shapes.features.filter((f) => f.properties.POP != null).length}`);
