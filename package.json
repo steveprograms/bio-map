@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "data": "node scripts/build-tri.mjs && mapshaper public/data/tri-facilities.geojson -join data-raw/counties-500k.geojson fields=GEOID -rename-fields county_fips=GEOID -o public/data/tri-facilities.geojson force && node scripts/build-counties.mjs"
+    "data": "node scripts/build-tri.mjs && mapshaper public/data/tri-facilities.geojson -join data-raw/counties-500k.geojson fields=GEOID -rename-fields county_fips=GEOID -o public/data/tri-facilities.geojson force && node scripts/build-counties.mjs",
+    "data:download": "bash scripts/download-data.sh"
   },
   "dependencies": {
     "maplibre-gl": "^6.16.0",

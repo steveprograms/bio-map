@@ -46,4 +46,6 @@ next-env.d.ts
 public/maplibre/
 
 # data-raw (Raw data is formatted and moved to the public/data/ folder, so data-raw isn't needed for commit)
-data-raw/
+data-raw/*
+!data-raw/ct-towns-2020.json
+!data-raw/ct-towns-2022.json
