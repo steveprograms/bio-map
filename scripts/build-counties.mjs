@@ -7,6 +7,8 @@
 //   data-raw/places-county-all.csv     CDC PLACES county data, all measures, age-adjusted
 //   data-raw/svi-2022-county.csv       CDC/ATSDR Social Vulnerability Index 2022, US counties
 //   public/data/tri-facilities.geojson EPA TRI facilities, tagged with county_fips (see "npm run data")
+//   data-raw/pm25-county-year*.csv     CDC Tracking Network modeled PM2.5, summarized per county and year
+//   data-raw/ozone-county-year*.csv    CDC Tracking Network modeled ozone, summarized per county and year
 //
 // Each dataset adds measures to the same county table.
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -16,6 +18,10 @@ const SHAPES = 'public/data/us-counties.geojson';
 const PLACES_CSV = 'data-raw/places-county-all.csv';
 const SVI_CSV = 'data-raw/svi-2022-county.csv';
 const TRI_GEOJSON = 'public/data/tri-facilities.geojson';
+const AIR_FILES = {
+  pm25: { means: 'data-raw/pm25-county-year.csv', highDays: 'data-raw/pm25-county-year-high.csv' },
+  ozone: { means: 'data-raw/ozone-county-year.csv', highDays: 'data-raw/ozone-county-year-high.csv' },
+};
 const OUT_COUNTIES = 'public/data/counties.geojson';
 const OUT_MEASURES = 'public/data/measures.json';
 
@@ -50,6 +56,11 @@ function addValue(measureId, fips, value, low = null, high = null) {
 
 // ---------- CDC PLACES ----------
 
+// Each measure's role in analyses: an "outcome" (a health result), an "exposure" (an
+// environmental factor), or a "covariate" (social, behavioral, or access context to adjust for).
+// PLACES roles follow the PLACES category; anything unlisted is treated as a covariate.
+const PLACES_OUTCOME_CATEGORIES = ['Health Outcomes', 'Health Status', 'Disability'];
+
 // Clearer names for a few PLACES measures whose short names are misleading
 const PLACES_SHORT_NAMES = {
   ACCESS2: 'No Health Insurance (18–64)',
@@ -70,6 +81,7 @@ for (const r of placesRows) {
       name: r.measure,
       short: PLACES_SHORT_NAMES[id] ?? r.short_question_text,
       category: r.category,
+      role: PLACES_OUTCOME_CATEGORIES.includes(r.category) ? 'outcome' : 'covariate',
       source: 'CDC PLACES, 2025 release',
       valueType: 'Age-adjusted prevalence',
       year: Number(r.year),
@@ -127,6 +139,7 @@ for (const [id, short, name] of SVI_THEMES) {
     name,
     short,
     category: 'Social Vulnerability: Overall and Themes',
+    role: 'covariate',
     source: SVI_SOURCE,
     valueType: 'Percentile rank among US counties (higher = more vulnerable)',
     year: 2022,
@@ -143,6 +156,7 @@ for (const [id, short, name] of SVI_INDICATORS) {
     name,
     short,
     category: 'Social Vulnerability: Indicators',
+    role: 'covariate',
     source: SVI_SOURCE,
     valueType: 'Percent, American Community Survey 5-year estimate',
     year: 2022,
@@ -187,6 +201,7 @@ const triMeasure = (id, short, name, valueType, unit, decimals) =>
     name,
     short,
     category: 'Environment: Toxics Release Inventory',
+    role: 'exposure',
     source: TRI_SOURCE,
     valueType,
     year: 2024,
@@ -224,6 +239,98 @@ for (const fips of shapeFips) {
   if (population) addValue('TRI_AIR_PER_1K', fips, Math.round((air / population) * 1000 * 10) / 10);
 }
 
+// ---------- Modeled air quality (CDC Tracking Network, EPA Downscaler model) ----------
+
+// The downloads hold one row per county per year: the average of that year's daily
+// population-weighted predictions, how many days that covers, and (in the *-high file)
+// how many days were above the threshold. Here we average across the years.
+const AIR_SOURCE = 'CDC Environmental Public Health Tracking Network (EPA Downscaler model)';
+const airFips = (r) => `${String(r.statefips).padStart(2, '0')}${String(r.countyfips).padStart(3, '0')}`;
+
+const AIR_MEASURES = [
+  {
+    pollutant: 'pm25',
+    avgId: 'PM25_AVG',
+    highId: 'PM25_HIGH_DAYS',
+    avgShort: 'PM2.5 (Annual Average)',
+    avgName: 'Fine particulate matter (PM2.5), annual average',
+    highShort: 'PM2.5 High Days',
+    highName: 'Days per year with modeled PM2.5 above 35 µg/m³',
+    unit: ' µg/m³',
+  },
+  {
+    pollutant: 'ozone',
+    avgId: 'O3_AVG',
+    highId: 'O3_HIGH_DAYS',
+    avgShort: 'Ozone (Average Daily Level)',
+    avgName: 'Ozone, average daily modeled level',
+    highShort: 'Ozone High Days',
+    highName: 'Days per year with modeled ozone above 70 ppb',
+    unit: ' ppb',
+  },
+];
+const airMeasureIds = AIR_MEASURES.flatMap((a) => [a.avgId, a.highId]);
+const airYears = new Set();
+const airRowCounts = {};
+
+for (const air of AIR_MEASURES) {
+  const means = readCsv(AIR_FILES[air.pollutant].means);
+  const highs = readCsv(AIR_FILES[air.pollutant].highDays);
+  airRowCounts[air.pollutant] = { means: means.length, highDays: highs.length };
+
+  // county FIPS -> { weighted sum of daily values, total days, years seen }
+  const totals = new Map();
+  for (const r of means) {
+    const mean = num(r.mean);
+    const days = num(r.days);
+    if (mean === null || !days) continue;
+    airYears.add(String(r.year));
+    const t = totals.get(airFips(r)) ?? { sum: 0, days: 0, years: 0 };
+    t.sum += mean * days;
+    t.days += days;
+    t.years += 1;
+    totals.set(airFips(r), t);
+  }
+  // county FIPS -> total high days across the years (counties with none aren't listed)
+  const highDays = new Map();
+  for (const r of highs) highDays.set(airFips(r), (highDays.get(airFips(r)) ?? 0) + (num(r.high_days) ?? 0));
+
+  const common = {
+    category: 'Environment: Air Quality',
+    role: 'exposure',
+    source: AIR_SOURCE,
+    year: 2022,
+    period: '2020–2022',
+  };
+  measures.set(air.avgId, {
+    ...common,
+    id: air.avgId,
+    name: air.avgName,
+    short: air.avgShort,
+    valueType: 'Modeled daily level, population-weighted within the county, averaged over 2020–2022',
+    unit: air.unit,
+    decimals: 1,
+    scale: 'linear',
+    values: [], // each measure needs its own list
+  });
+  measures.set(air.highId, {
+    ...common,
+    id: air.highId,
+    name: air.highName,
+    short: air.highShort,
+    valueType: 'Average days per year over 2020–2022, from population-weighted daily county values',
+    unit: ' days',
+    decimals: 1,
+    scale: 'log', // most counties have none or few; a few have many
+    values: [], // each measure needs its own list
+  });
+
+  for (const [fips, t] of totals) {
+    addValue(air.avgId, fips, Math.round((t.sum / t.days) * 10) / 10);
+    addValue(air.highId, fips, Math.round(((highDays.get(fips) ?? 0) / t.years) * 10) / 10);
+  }
+}
+
 // ---------- Join onto the county shapes ----------
 
 let matched = 0;
@@ -255,10 +362,11 @@ const placesList = all
   .map(summarize)
   .sort((a, b) => a.category.localeCompare(b.category) || a.short.localeCompare(b.short));
 const triList = all.filter((m) => triMeasureIds.includes(m.id)).map(summarize);
+const airList = all.filter((m) => airMeasureIds.includes(m.id)).map(summarize);
 const sviList = all // keep SVI's own order
-  .filter((m) => !placesMeasureIds.includes(m.id) && !triMeasureIds.includes(m.id))
+  .filter((m) => ![...placesMeasureIds, ...triMeasureIds, ...airMeasureIds].includes(m.id))
   .map(summarize);
-const measureList = [...placesList, ...triList, ...sviList];
+const measureList = [...placesList, ...triList, ...airList, ...sviList];
 
 writeFileSync(OUT_COUNTIES, JSON.stringify(shapes));
 writeFileSync(OUT_MEASURES, JSON.stringify(measureList, null, 2));
@@ -290,8 +398,18 @@ console.log('');
 console.log(`TRI measures: ${triList.length}`);
 show(triList);
 console.log('');
+console.log(
+  `Air quality measures: ${airList.length} (years: ${[...airYears].sort().join(', ')}; rows read: ${JSON.stringify(airRowCounts)})`
+);
+show(airList);
+console.log('');
 console.log(`SVI measures: ${sviList.length}`);
 show(sviList);
 console.log('');
 console.log(`Wrote ${OUT_COUNTIES} (${mb(OUT_COUNTIES)} MB)`);
 console.log(`Wrote ${OUT_MEASURES}`);
+console.log('');
+console.log('Roles by category (check these look right):');
+const roleRows = new Map();
+for (const m of measureList) roleRows.set(`${m.role.padEnd(10)} ${m.category}`, (roleRows.get(`${m.role.padEnd(10)} ${m.category}`) ?? 0) + 1);
+for (const [row, count] of roleRows) console.log(`  ${row} (${count})`);

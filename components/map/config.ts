@@ -27,11 +27,19 @@ export const DATA_SOURCES = {
 export const MEASURES_URL = '/data/measures.json';
 export const DEFAULT_MEASURE_ID = 'CASTHMA';
 
+// A measure's role in analyses, set in scripts/build-counties.mjs:
+//   outcome   - a health result (asthma, COPD, disability, ...)
+//   exposure  - an environmental factor (toxic air releases, ...)
+//   covariate - social, behavioral, or access context to adjust for (poverty, smoking, ...)
+export const MEASURE_ROLES = ['outcome', 'exposure', 'covariate'] as const;
+export type MeasureRole = (typeof MEASURE_ROLES)[number];
+
 export interface Measure {
   id: string; // e.g. CASTHMA or RPL_THEMES; also the property name in counties.geojson
   name: string; // full name, e.g. "Current asthma among adults"
   short: string; // short name for the picker, e.g. "Current Asthma"
   category: string; // picker group, e.g. "Health Outcomes"
+  role: MeasureRole; // how analyses treat it: outcome, exposure, or covariate
   source: string; // e.g. "CDC PLACES, 2025 release"
   valueType: string; // e.g. "Age-adjusted prevalence"
   year: number; // latest year the data describes
@@ -69,6 +77,7 @@ export const KEY_MEASURE_IDS = [
   'GHLTH',
   'TRI_AIR_PER_1K',
   'TRI_FACILITIES',
+  'PM25_AVG',
   'RPL_THEMES',
   'EP_POV150',
   'EP_UNINSUR',
@@ -94,7 +103,7 @@ export type Visibility = 'visible' | 'none';
 // its internal name is kept so layer ids and tests stay stable.
 export const LAYER_LABELS: Record<LayerKey, string> = {
   health: 'County data',
-    tri: 'TRI facilities: air releases',
+  tri: 'TRI facilities: air releases',
 };
 
 // Accessible name of the measure dropdown (also used by tests to find it)
