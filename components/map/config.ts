@@ -105,6 +105,36 @@ export const PAIR_COLORS = [
 export const COUNTY_MODE_LABELS: Record<CountyMode, string> = { single: 'One measure', pair: 'Two measures' };
 export const PAIR_PICKER_LABELS = { y: 'Measure going up', x: 'Measure going across' };
 
+// ---------- Scans ----------
+
+// outcome: pick an outcome, test it against every exposure and covariate (exposure-wide, ExWAS)
+// exposure: pick an exposure, test it against every outcome (outcome-wide)
+export type ScanKind = 'outcome' | 'exposure';
+export const SCAN_KIND_LABELS: Record<ScanKind, string> = {
+  outcome: 'Start from an outcome',
+  exposure: 'Start from an exposure',
+};
+export const SCAN_FOCUS_LABELS: Record<ScanKind, string> = {
+  outcome: 'Outcome to scan',
+  exposure: 'Exposure to scan',
+};
+export const DEFAULT_SCAN_FOCUS: Record<ScanKind, string> = { outcome: 'CASTHMA', exposure: 'PM25_AVG' };
+export const SCAN_FDR = 0.05; // q-value line on the plot
+// One-click starting set for "Adjust for": poverty, smoking, and age, common confounders
+// of county health patterns. Researchers should choose their own for a real analysis.
+export const SUGGESTED_ADJUSTMENT = ['EP_POV150', 'CSMOKING', 'EP_AGE65'];
+export const ROLE_LABELS: Record<MeasureRole, string> = {
+  outcome: 'Outcome',
+  exposure: 'Exposure',
+  covariate: 'Covariate',
+};
+export const ROLE_COLORS: Record<MeasureRole, string> = {
+  outcome: '#0f766e',
+  exposure: '#c2410c',
+  covariate: '#4f46e5',
+};
+export const OPEN_SCAN_LABEL = 'Scan for associations';
+
 // Sequential colors, light (low) to dark (high), spread from each measure's 5th to 95th percentile
 export const HEALTH_COLORS = ['#ffffd4', '#fed98e', '#fe9929', '#d95f0e', '#993404'];
 

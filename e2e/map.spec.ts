@@ -8,6 +8,7 @@ import {
   LAYER_GROUPS,
   LAYER_LABELS,
   MEASURE_PICKER_LABEL,
+  OPEN_SCAN_LABEL,
   MEASURES_URL,
   PAIR_COLORS,
   WORKER_URL,
@@ -206,4 +207,35 @@ test('two-measure mode colors counties by both measures and can show one legend 
   // Back to one measure
   await page.getByRole('button', { name: COUNTY_MODE_LABELS.single }).click();
   await expect.poll(() => paint('fill-color')).not.toContain(PAIR_COLORS[2][2]);
+});
+
+test('a scan lists results, and clicking one shows that pair on the two-measure map', async ({ page }) => {
+  await openLoadedMap(page);
+  await page.getByRole('button', { name: `${OPEN_SCAN_LABEL}…` }).click();
+
+  const dialog = page.getByRole('dialog', { name: 'Scan for associations' });
+  await expect(dialog).toBeVisible();
+  const rows = dialog.getByRole('table', { name: 'Scan results' }).getByRole('row');
+  await expect.poll(() => rows.count()).toBeGreaterThan(10); // header + many measures
+  await expect(dialog.getByRole('group', { name: 'Volcano plot' }).getByRole('button').first()).toBeVisible();
+
+  // The spatial correction is on by default and fills in effective county counts
+  await expect(dialog.getByLabel('Correct for spatial autocorrelation')).toBeChecked();
+  await expect(dialog.getByText(/^eff\. /).first()).toBeVisible({ timeout: 30_000 });
+  await expect(dialog.getByRole('status')).toHaveCount(0);
+
+  // Adjusting for the suggested covariates adds an unadjusted-r column for comparison
+  await dialog.getByRole('button', { name: /^Suggested:/ }).click();
+  await expect(dialog.getByRole('columnheader', { name: /Unadjusted r/ })).toBeVisible();
+
+  // Map the top result: the dialog closes and the map shows both measures
+  const top = rows.nth(1).getByRole('button');
+  const topName = await top.textContent();
+  await top.click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole('button', { name: COUNTY_MODE_LABELS.pair })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByText(/counties have both values/)).toBeVisible();
+  const fillColor = await page.evaluate(() => JSON.stringify(window.__usMap?.getPaintProperty('health-fill', 'fill-color')));
+  expect(fillColor).toContain('"CASTHMA"');
+  expect(topName).toBeTruthy();
 });

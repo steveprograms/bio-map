@@ -13,6 +13,7 @@ import {
   DATA_SOURCES,
   DEFAULT_MEASURE_ID,
   DEFAULT_PAIR,
+  DEFAULT_SCAN_FOCUS,
   LAYER_GROUPS,
   MAX_SELECTED,
   MEASURES_URL,
@@ -21,6 +22,7 @@ import {
   type LayerKey,
   type Measure,
   type Pair,
+  type ScanKind,
 } from './config';
 import { buildCountyIndex, type CountyIndex } from './countyStats';
 import { HATCH_IMAGE_ID, makeHatchPattern } from './hatchPattern';
@@ -32,6 +34,8 @@ import { triPopupHtml } from './popup';
 import { summarizePair } from './stats';
 import CompareTable from './CompareTable';
 import LayerPanel from './LayerPanel';
+import ScanPanel from './ScanPanel';
+import { focusChoices } from './scan';
 import SelectionPanel from './SelectionPanel';
 
 // In development, the map is exposed as window.__usMap so end-to-end tests
@@ -82,6 +86,13 @@ export default function MapView() {
   const [selected, setSelected] = useState<string[]>([]);
   const selectedRef = useRef(selected);
   const [comparing, setComparing] = useState(false);
+
+  // Scans: open or not, which kind, and the measure each kind starts from (kept while closed)
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanKind, setScanKind] = useState<ScanKind>('outcome');
+  const [scanFocus, setScanFocus] = useState<Record<ScanKind, string>>(DEFAULT_SCAN_FOCUS);
+  const [scanAdjust, setScanAdjust] = useState<string[]>([]); // covariates to adjust for
+  const [scanSpatial, setScanSpatial] = useState(true); // correct for spatial autocorrelation
 
   // Thirds, counts, and correlation for the two-measure map (recomputed when the pair changes)
   const pairSummary = useMemo(
@@ -266,6 +277,19 @@ export default function MapView() {
     setPairCell(null);
   };
 
+  // From a scan result: close the scan and show the pair on the two-measure map
+  const mapScanPair = (next: Pair) => {
+    changePair(next);
+    setCountyMode('pair');
+    setVisible((v) => ({ ...v, health: true }));
+    setScanOpen(false);
+  };
+
+  // The scan's starting measure, falling back to the first one of the right role
+  const scanFocusId = focusChoices(measures, scanKind).some((m) => m.id === scanFocus[scanKind])
+    ? scanFocus[scanKind]
+    : (focusChoices(measures, scanKind)[0]?.id ?? '');
+
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       {/* data-loaded flips to "true" once all layers are added (used by end-to-end tests) */}
@@ -283,6 +307,11 @@ export default function MapView() {
         pairCell={pairCell}
         onPairCellChange={setPairCell}
         pairSummary={pairSummary}
+        onOpenScan={() => {
+          setComparing(false);
+          setScanOpen(true);
+        }}
+        scanReady={countyIndex !== null && measures.length > 0}
       />
       <SelectionPanel
         selected={selected}
@@ -301,6 +330,22 @@ export default function MapView() {
           mapMeasureIds={mapMeasureIds}
           onMeasureChange={showMeasure}
           onClose={() => setComparing(false)}
+        />
+      )}
+      {scanOpen && countyIndex && (
+        <ScanPanel
+          index={countyIndex}
+          measures={measures}
+          kind={scanKind}
+          onKindChange={setScanKind}
+          focusId={scanFocusId}
+          onFocusChange={(id) => setScanFocus((current) => ({ ...current, [scanKind]: id }))}
+          adjustFor={scanAdjust}
+          onAdjustForChange={setScanAdjust}
+          spatialCorrection={scanSpatial}
+          onSpatialCorrectionChange={setScanSpatial}
+          onMapPair={mapScanPair}
+          onClose={() => setScanOpen(false)}
         />
       )}
     </div>

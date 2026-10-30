@@ -7,6 +7,7 @@ import {
   HEAT_COLORS,
   LAYER_LABELS,
   MEASURE_PICKER_LABEL,
+  OPEN_SCAN_LABEL,
   OTHER_SECTOR_COLOR,
   PAIR_COLORS,
   PAIR_LEVELS,
@@ -38,6 +39,8 @@ interface LayerPanelProps {
   pairCell: number | null; // the legend square shown alone, if any (0-8)
   onPairCellChange: (cell: number | null) => void;
   pairSummary: PairSummary | null;
+  onOpenScan: () => void;
+  scanReady: boolean; // false until the county data has loaded
 }
 
 const panelStyle: CSSProperties = {
@@ -88,6 +91,19 @@ export default function LayerPanel(props: LayerPanelProps) {
         {LAYER_LABELS.tri}
       </label>
       {visible.tri && <TriLegend />}
+
+      <div style={{ marginTop: 10, borderTop: '1px solid #e2e8f0', paddingTop: 8 }}>
+        <div style={{ fontWeight: 600, marginBottom: 4 }}>Research tools</div>
+        <button
+          type="button"
+          onClick={props.onOpenScan}
+          disabled={!props.scanReady}
+          style={{ fontSize: 12, padding: '3px 8px', borderRadius: 4, border: '1px solid #cbd5e1', background: 'white', cursor: props.scanReady ? 'pointer' : 'default' }}
+        >
+          {OPEN_SCAN_LABEL}…
+        </button>
+        <div style={legendNote}>Test one outcome or exposure against many measures at once.</div>
+      </div>
 
       <div style={{ ...legendNote, marginTop: 10, borderTop: '1px solid #e2e8f0', paddingTop: 6 }}>
         Click counties on the map to select and compare them.

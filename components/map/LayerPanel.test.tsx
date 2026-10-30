@@ -5,6 +5,7 @@ import {
   COUNTY_MODE_LABELS,
   LAYER_LABELS,
   MEASURE_PICKER_LABEL,
+  OPEN_SCAN_LABEL,
   PAIR_PICKER_LABELS,
   SECTOR_COLORS,
   sectorLabel,
@@ -33,6 +34,8 @@ function renderPanel(
     pairCell: number | null;
     onPairCellChange: (cell: number | null) => void;
     pairSummary: PairSummary | null;
+    onOpenScan: () => void;
+    scanReady: boolean;
   }> = {}
 ) {
   return render(
@@ -49,6 +52,8 @@ function renderPanel(
       pairCell={props.pairCell ?? null}
       onPairCellChange={props.onPairCellChange ?? (() => {})}
       pairSummary={props.pairSummary === undefined ? null : props.pairSummary}
+      onOpenScan={props.onOpenScan ?? (() => {})}
+      scanReady={props.scanReady ?? true}
     />
   );
 }
@@ -260,5 +265,19 @@ describe('LayerPanel two measures', () => {
     renderPair({ pairSummary: { ...summary, n: 2, r: null } });
 
     expect(screen.getByText('Correlation: not enough data')).toBeInTheDocument();
+  });
+});
+
+describe('LayerPanel research tools', () => {
+  it('opens the scan once the county data has loaded', async () => {
+    const user = userEvent.setup();
+    const onOpenScan = vi.fn();
+    const { unmount } = renderPanel({ onOpenScan, scanReady: false });
+    expect(screen.getByRole('button', { name: `${OPEN_SCAN_LABEL}…` })).toBeDisabled();
+    unmount();
+
+    renderPanel({ onOpenScan, scanReady: true });
+    await user.click(screen.getByRole('button', { name: `${OPEN_SCAN_LABEL}…` }));
+    expect(onOpenScan).toHaveBeenCalled();
   });
 });
