@@ -188,7 +188,7 @@ test('two-measure mode colors counties by both measures and can show one legend 
   await page.getByLabel(LAYER_LABELS.health, { exact: true }).check();
   await page.getByRole('button', { name: COUNTY_MODE_LABELS.pair }).click();
 
-  const paint = (property: string) =>
+  const paint = (property: 'fill-color' | 'fill-opacity') =>
     page.evaluate((p) => JSON.stringify(window.__usMap?.getPaintProperty('health-fill', p)), property);
 
   // The fill now uses both default measures and the 3×3 colors
