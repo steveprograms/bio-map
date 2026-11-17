@@ -4,7 +4,7 @@
 #   npm run data:download
 #
 # Safe to rerun: files that are already there are skipped (delete one to fetch it again).
-# Two files can't be downloaded automatically; the script checks for them at the end.
+# Three files can't be downloaded automatically; the script checks for them at the end.
 # See DATA.md for what each file is and where it comes from.
 set -euo pipefail
 
@@ -97,6 +97,13 @@ if have data-raw/tri-us.csv; then
   echo "have tri-us.csv"
 else
   echo "MISSING data-raw/tri-us.csv: EPA TRI Basic Data File, 2024, U.S. (national)"
+  missing=1
+fi
+
+if have data-raw/nri-counties.csv; then
+  echo "have nri-counties.csv"
+else
+  echo "MISSING data-raw/nri-counties.csv: FEMA National Risk Index, Table (CSV), All Counties (unzip, rename)"
   missing=1
 fi
 
