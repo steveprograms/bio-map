@@ -9,6 +9,7 @@
 //   public/data/tri-facilities.geojson EPA TRI facilities, tagged with county_fips (see "npm run data")
 //   data-raw/pm25-county-year*.csv     CDC Tracking Network modeled PM2.5, summarized per county and year
 //   data-raw/ozone-county-year*.csv    CDC Tracking Network modeled ozone, summarized per county and year
+//   data-raw/nri-counties.csv          FEMA National Risk Index, county table (natural hazard frequencies)
 //   data-raw/ct-towns-2020.json        Connecticut town populations with their old counties (2020 Census)
 //   data-raw/ct-towns-2022.json        Connecticut towns with their planning regions (2022 Census data)
 //
@@ -20,6 +21,7 @@ const SHAPES = 'public/data/us-counties.geojson';
 const PLACES_CSV = 'data-raw/places-county-all.csv';
 const SVI_CSV = 'data-raw/svi-2022-county.csv';
 const TRI_GEOJSON = 'public/data/tri-facilities.geojson';
+const NRI_CSV = 'data-raw/nri-counties.csv';
 const CT_TOWNS_2020 = 'data-raw/ct-towns-2020.json';
 const CT_TOWNS_2022 = 'data-raw/ct-towns-2022.json';
 const AIR_FILES = {
@@ -405,6 +407,64 @@ for (const air of AIR_MEASURES) {
   for (const [fips, value] of withCtRegions(highPerYear)) addValue(air.highId, fips, Math.round(value * 10) / 10);
 }
 
+// ---------- FEMA National Risk Index: natural hazard frequencies ----------
+
+// The NRI county table has, for each of 18 natural hazards, an "annualized frequency" (<HAZARD>_AFREQ):
+// how often the hazard occurs per year in the county, from FEMA's historical records and models.
+// We use the frequencies only, as exposures. The NRI's risk scores and expected losses are left out on
+// purpose: the risk score multiplies in FEMA's own social vulnerability index (which would duplicate
+// our SVI covariates), and expected losses are in dollars of property, so wealthier counties score higher.
+// Units differ by hazard (see https://hazards.fema.gov/nri/annualized-frequency).
+const NRI_SOURCE = 'FEMA National Risk Index';
+const NRI_HAZARDS = [
+  // [field prefix, measure id, short name, full name, what one unit is, unit shown, decimals, multiply by]
+  ['HWAV', 'NRI_HEAT_FREQ', 'Heat Waves', 'Heat wave frequency', 'Heat-wave event-days per year', ' days', 2, 1],
+  ['CWAV', 'NRI_COLD_FREQ', 'Cold Waves', 'Cold wave frequency', 'Cold-wave event-days per year', ' days', 2, 1],
+  ['DRGT', 'NRI_DROUGHT_FREQ', 'Drought', 'Drought frequency', 'Drought event-days per year', ' days', 1, 1],
+  ['WFIR', 'NRI_WILDFIRE_FREQ', 'Wildfire', 'Wildfire likelihood', 'Annual chance of wildfire (burn probability), in percent', '%', 3, 100],
+  ['IFLD', 'NRI_FLOOD_FREQ', 'Inland Flooding', 'Inland flooding frequency', 'Annualized frequency as FEMA defines it for inland flooding', '', 2, 1],
+  ['HRCN', 'NRI_HURRICANE_FREQ', 'Hurricanes', 'Hurricane frequency', 'Hurricane events per year', '', 3, 1],
+  ['TRND', 'NRI_TORNADO_FREQ', 'Tornadoes', 'Tornado frequency', 'Tornado events per year', '', 3, 1],
+  ['WNTW', 'NRI_WINTER_FREQ', 'Winter Weather', 'Winter weather frequency', 'Winter weather event-days per year', ' days', 1, 1],
+];
+const nriMeasureIds = NRI_HAZARDS.map(([, id]) => id);
+const nriRows = readCsv(NRI_CSV);
+const nriVersions = new Set(nriRows.map((r) => r.NRI_VER).filter(Boolean));
+const nriVersion = [...nriVersions].join(', ') || 'unknown version';
+const nriMissingColumns = [];
+
+for (const [prefix, id, short, name, valueType, unit, decimals, factor] of NRI_HAZARDS) {
+  const column = `${prefix}_AFREQ`;
+  if (!(column in (nriRows[0] ?? {}))) {
+    nriMissingColumns.push(column);
+    continue;
+  }
+  measures.set(id, {
+    id,
+    name,
+    short,
+    category: 'Environment: Natural Hazards',
+    role: 'exposure',
+    source: `${NRI_SOURCE} (${nriVersion})`,
+    valueType,
+    year: 2024, // release year; not shown in the app (the legend shows the version from the file)
+    period: `NRI ${nriVersion}`,
+    unit,
+    decimals,
+    scale: 'linear',
+    values: [],
+  });
+  const values = new Map();
+  for (const r of nriRows) {
+    // Hurricanes: FEMA leaves counties hurricanes don't reach blank, which means 0, not unknown
+    const value = num(r[column]) ?? (prefix === 'HRCN' ? 0 : null);
+    if (value === null) continue;
+    values.set(String(r.STCOFIPS).trim().padStart(5, '0'), value * factor);
+  }
+  const round = (v) => Math.round(v * 10 ** decimals) / 10 ** decimals;
+  for (const [fips, value] of withCtRegions(values)) addValue(id, fips, round(value));
+}
+
 // ---------- Join onto the county shapes ----------
 
 let matched = 0;
@@ -437,10 +497,11 @@ const placesList = all
   .sort((a, b) => a.category.localeCompare(b.category) || a.short.localeCompare(b.short));
 const triList = all.filter((m) => triMeasureIds.includes(m.id)).map(summarize);
 const airList = all.filter((m) => airMeasureIds.includes(m.id)).map(summarize);
+const nriList = all.filter((m) => nriMeasureIds.includes(m.id)).map(summarize);
 const sviList = all // keep SVI's own order
-  .filter((m) => ![...placesMeasureIds, ...triMeasureIds, ...airMeasureIds].includes(m.id))
+  .filter((m) => ![...placesMeasureIds, ...triMeasureIds, ...airMeasureIds, ...nriMeasureIds].includes(m.id))
   .map(summarize);
-const measureList = [...placesList, ...triList, ...airList, ...sviList];
+const measureList = [...placesList, ...triList, ...airList, ...nriList, ...sviList];
 
 writeFileSync(OUT_COUNTIES, JSON.stringify(shapes));
 writeFileSync(OUT_MEASURES, JSON.stringify(measureList, null, 2));
@@ -480,6 +541,10 @@ console.log(
   `Air quality measures: ${airList.length} (years: ${[...airYears].sort().join(', ')}; rows read: ${JSON.stringify(airRowCounts)})`
 );
 show(airList);
+console.log('');
+console.log(`Natural hazard measures: ${nriList.length} (FEMA NRI ${nriVersion}; rows read: ${nriRows.length})`);
+if (nriMissingColumns.length) console.log(`  WARNING: columns not found in ${NRI_CSV}: ${nriMissingColumns.join(', ')}`);
+show(nriList);
 console.log('');
 console.log(`SVI measures: ${sviList.length}`);
 show(sviList);
