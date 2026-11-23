@@ -114,6 +114,13 @@ else
   missing=1
 fi
 
+if have data-raw/pesticides-county.txt; then
+  echo "have pesticides-county.txt"
+else
+  echo "MISSING data-raw/pesticides-county.txt: USGS county pesticide use estimates, 2019 (https://doi.org/10.5066/P9EDTHQL), the county .txt file (rename)"
+  missing=1
+fi
+
 if [ "$missing" -eq 0 ]; then
   printf '\nAll raw data is in place. Next: npm run data\n'
 else
