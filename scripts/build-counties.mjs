@@ -11,6 +11,7 @@
 //   data-raw/ozone-county-year*.csv    CDC Tracking Network modeled ozone, summarized per county and year
 //   data-raw/nri-counties.csv          FEMA National Risk Index, county table (natural hazard frequencies)
 //   data-raw/uscs-county.txt           CDC/NCI U.S. Cancer Statistics, county incidence (BYAREA_COUNTY.TXT)
+//   data-raw/pesticides-county.txt     USGS Pesticide National Synthesis Project, county use estimates (EPest)
 //   data-raw/ct-towns-2020.json        Connecticut town populations with their old counties (2020 Census)
 //   data-raw/ct-towns-2022.json        Connecticut towns with their planning regions (2022 Census data)
 //
@@ -24,6 +25,7 @@ const SVI_CSV = 'data-raw/svi-2022-county.csv';
 const TRI_GEOJSON = 'public/data/tri-facilities.geojson';
 const NRI_CSV = 'data-raw/nri-counties.csv';
 const USCS_TXT = 'data-raw/uscs-county.txt';
+const PESTICIDE_TXT = 'data-raw/pesticides-county.txt';
 const CT_TOWNS_2020 = 'data-raw/ct-towns-2020.json';
 const CT_TOWNS_2022 = 'data-raw/ct-towns-2022.json';
 const AIR_FILES = {
@@ -578,6 +580,152 @@ for (const [id, short, name, pattern, sex] of CANCER_SITES) {
   cancerReport.push(`  ${id.padEnd(18)} SITE "${site}", sex ${sex}: ${values.size} counties with a rate, ${suppressed} suppressed`);
 }
 
+// ---------- Pesticide use: USGS Pesticide National Synthesis Project ----------
+
+// Estimated agricultural pesticide use per county and compound, in kilograms, from USDA crop acreage and
+// farm surveys (estimates, not measurements). Lower 48 states only. We show kilograms applied per square
+// mile of county land, so large counties don't rank high just for their size.
+//
+// USGS gives two estimates: EPest-low (mostly surveyed use; counties without survey data count as no use)
+// and EPest-high (also estimates use where surveys are missing). We use EPest-high so unsurveyed farm
+// counties aren't shown as zero; change PESTICIDE_ESTIMATE to 'LOW' to use the other one.
+// The file lists only counties with estimated use, so a lower-48 county that isn't listed gets 0.
+const PESTICIDE_ESTIMATE = 'HIGH';
+const PESTICIDE_COMPOUNDS = [
+  // [measure id, short name, full name, pattern for the COMPOUND column (all matches are summed)]
+  ['PEST_GLYPHOSATE', 'Glyphosate', 'Glyphosate (herbicide) applied on farms', /^glyphosate$/i],
+  ['PEST_ATRAZINE', 'Atrazine', 'Atrazine (herbicide) applied on farms', /^atrazine$/i],
+  ['PEST_24D', '2,4-D', '2,4-D (herbicide) applied on farms', /^2,4-d$/i],
+  ['PEST_DICAMBA', 'Dicamba', 'Dicamba (herbicide) applied on farms', /^dicamba$/i],
+  ['PEST_METOLACHLOR', 'Metolachlor', 'Metolachlor and S-metolachlor (herbicide) applied on farms', /^(s-)?metolachlor(-s)?( & metolachlor-s)?$/i],
+  ['PEST_PARAQUAT', 'Paraquat', 'Paraquat (herbicide) applied on farms', /^paraquat$/i],
+  ['PEST_CHLORPYRIFOS', 'Chlorpyrifos', 'Chlorpyrifos (insecticide) applied on farms', /^chlorpyrifos$/i],
+];
+const PEST_TOTAL_ID = 'PEST_TOTAL';
+const pesticideMeasureIds = [...PESTICIDE_COMPOUNDS.map(([id]) => id), PEST_TOTAL_ID];
+
+const pestText = readFileSync(PESTICIDE_TXT, 'utf8').replace(/^\uFEFF/, '');
+const pestDelimiter = ['\t', '|', ','].find((d) => pestText.slice(0, pestText.indexOf('\n')).includes(d)) ?? '\t';
+const pestRows = parse(pestText, {
+  delimiter: pestDelimiter,
+  columns: (header) => header.map((h) => h.trim().toUpperCase()),
+  skip_empty_lines: true,
+  relax_quotes: true,
+  relax_column_count: true,
+});
+const pestColumns = Object.keys(pestRows[0] ?? {});
+const pestColumn = (pattern, what) => {
+  const column = pestColumns.find((c) => pattern.test(c));
+  if (!column) throw new Error(`${PESTICIDE_TXT}: no ${what} column. Columns found: ${pestColumns.join(', ')}`);
+  return column;
+};
+const PEST_COL = {
+  compound: pestColumn(/^COMPOUND/, 'compound'),
+  state: pestColumn(/^STATE_?FIPS/, 'state FIPS'),
+  county: pestColumn(/^COUNTY_?FIPS/, 'county FIPS'),
+  kg: pestColumn(new RegExp(`EPEST.*${PESTICIDE_ESTIMATE}|${PESTICIDE_ESTIMATE}.*KG`), `EPest-${PESTICIDE_ESTIMATE.toLowerCase()}`),
+  year: pestColumns.find((c) => /^YEAR$/.test(c)),
+};
+const pestYears = [...new Set(pestRows.map((r) => Number(r[PEST_COL.year])).filter(Boolean))].sort();
+const pestYear = pestYears.at(-1) ?? null;
+const pestPeriod = String(pestYear ?? '');
+const pestCompoundNames = [...new Set(pestRows.map((r) => String(r[PEST_COL.compound]).trim()))].sort();
+
+// Land area in square miles, from the SVI file (it uses the same county codes as our shapes)
+const landArea = new Map();
+for (const r of sviRows) {
+  const area = num(r.AREA_SQMI);
+  if (area) landArea.set(String(r.FIPS).trim().padStart(5, '0'), area);
+}
+if (landArea.size === 0) throw new Error(`${SVI_CSV} has no AREA_SQMI column, needed for pesticide use per square mile`);
+const isLower48 = (fips) => !['02', '15'].includes(fips.slice(0, 2)) && Number(fips.slice(0, 2)) <= 56;
+
+// Kilograms per county and compound, newest year only
+const kgByCountyCompound = new Map(); // county FIPS -> Map(compound -> kg)
+for (const r of pestRows) {
+  if (pestYear && Number(r[PEST_COL.year]) !== pestYear) continue;
+  const kg = num(r[PEST_COL.kg]);
+  if (kg === null) continue;
+  const fips = `${String(r[PEST_COL.state]).trim().padStart(2, '0')}${String(r[PEST_COL.county]).trim().padStart(3, '0')}`;
+  const compound = String(r[PEST_COL.compound]).trim().toUpperCase();
+  const compounds = kgByCountyCompound.get(fips) ?? new Map();
+  compounds.set(compound, (compounds.get(compound) ?? 0) + kg);
+  kgByCountyCompound.set(fips, compounds);
+}
+
+// Some compounds also appear as a combined entry, e.g. "METOLACHLOR & METOLACHLOR-S" beside METOLACHLOR and
+// METOLACHLOR-S. Adding all three could count the same use twice, so in a county with a combined entry we use
+// it and drop its parts; elsewhere the parts are used.
+let combinedWithParts = 0;
+for (const compounds of kgByCountyCompound.values()) {
+  for (const name of [...compounds.keys()].filter((n) => n.includes(' & '))) {
+    const parts = name.split(' & ').map((part) => part.trim());
+    if (parts.some((part) => compounds.has(part))) combinedWithParts++;
+    parts.forEach((part) => compounds.delete(part));
+  }
+}
+
+// Kilograms per county for each measure (the total sums every compound in the file)
+const pestKg = new Map(pesticideMeasureIds.map((id) => [id, new Map()]));
+const addKg = (id, fips, kg) => pestKg.get(id).set(fips, (pestKg.get(id).get(fips) ?? 0) + kg);
+for (const [fips, compounds] of kgByCountyCompound) {
+  for (const [compound, kg] of compounds) {
+    addKg(PEST_TOTAL_ID, fips, kg);
+    for (const [id, , , pattern] of PESTICIDE_COMPOUNDS) if (pattern.test(compound)) addKg(id, fips, kg);
+  }
+}
+
+// Connecticut: the file uses the old counties. Kilograms are amounts, so each old county's total is split
+// among planning regions by its share of population in each (the closest share we have to farmland).
+const ctOldPopulation = new Map();
+for (const regionWeights of ct.weights.values())
+  for (const [old, pop] of regionWeights) ctOldPopulation.set(old, (ctOldPopulation.get(old) ?? 0) + pop);
+function withCtRegionsKg(kgByFips) {
+  const result = new Map([...kgByFips].filter(([fips]) => !isOldCtCounty(fips)));
+  for (const [region, regionWeights] of ct.weights) {
+    if (result.has(region)) continue;
+    let kg = 0;
+    for (const [old, pop] of regionWeights) kg += (kgByFips.get(old) ?? 0) * (pop / ctOldPopulation.get(old));
+    result.set(region, kg);
+  }
+  return result;
+}
+
+const pestReport = [];
+const pestDecimals = 2;
+const PEST_TOTAL = [PEST_TOTAL_ID, 'All Pesticides (Estimated)', 'All pesticide compounds USGS estimated, applied on farms'];
+for (const [id, short, name] of [...PESTICIDE_COMPOUNDS, PEST_TOTAL]) {
+  const listed = pestKg.get(id).size;
+  if (listed === 0) {
+    pestReport.push(`  WARNING: ${id} matched no compound in the file; left out`);
+    continue;
+  }
+  const kgByFips = withCtRegionsKg(pestKg.get(id));
+  measures.set(id, {
+    id,
+    name,
+    short,
+    category: 'Environment: Pesticides',
+    role: 'exposure',
+    source: `USGS Pesticide National Synthesis Project${pestYear >= 2018 ? ' (preliminary estimates)' : ''}`,
+    valueType: `Estimated agricultural use (EPest-${PESTICIDE_ESTIMATE.toLowerCase()}), kg per square mile of land per year`,
+    year: pestYear,
+    period: pestPeriod,
+    unit: ' kg/sq mi',
+    decimals: pestDecimals,
+    scale: 'linear',
+    values: [],
+  });
+  let zeros = 0;
+  for (const [fips, area] of landArea) {
+    if (!isLower48(fips)) continue;
+    const kg = kgByFips.get(fips) ?? 0;
+    if (kg === 0) zeros++;
+    addValue(id, fips, Math.round((kg / area) * 10 ** pestDecimals) / 10 ** pestDecimals);
+  }
+  pestReport.push(`  ${id.padEnd(18)} counties listed in the file: ${listed}; lower-48 counties with no listed use (set to 0): ${zeros}`);
+}
+
 // ---------- Join onto the county shapes ----------
 
 let matched = 0;
@@ -612,10 +760,11 @@ const triList = all.filter((m) => triMeasureIds.includes(m.id)).map(summarize);
 const airList = all.filter((m) => airMeasureIds.includes(m.id)).map(summarize);
 const nriList = all.filter((m) => nriMeasureIds.includes(m.id)).map(summarize);
 const cancerList = all.filter((m) => cancerMeasureIds.includes(m.id)).map(summarize);
+const pesticideList = all.filter((m) => pesticideMeasureIds.includes(m.id)).map(summarize);
 const sviList = all // keep SVI's own order
-  .filter((m) => ![...placesMeasureIds, ...triMeasureIds, ...airMeasureIds, ...nriMeasureIds, ...cancerMeasureIds].includes(m.id))
+  .filter((m) => ![...placesMeasureIds, ...triMeasureIds, ...airMeasureIds, ...nriMeasureIds, ...cancerMeasureIds, ...pesticideMeasureIds].includes(m.id))
   .map(summarize);
-const measureList = [...placesList, ...cancerList, ...triList, ...airList, ...nriList, ...sviList];
+const measureList = [...placesList, ...cancerList, ...triList, ...airList, ...nriList, ...pesticideList, ...sviList];
 
 writeFileSync(OUT_COUNTIES, JSON.stringify(shapes));
 writeFileSync(OUT_MEASURES, JSON.stringify(measureList, null, 2));
@@ -665,6 +814,13 @@ console.log(`  Columns: ${uscsColumns.join(', ')}`);
 cancerReport.forEach((line) => console.log(line));
 show(cancerList);
 console.log(`  Cancer sites in the file: ${uscsSites.join('; ')}`);
+console.log('');
+console.log(`Pesticide measures: ${pesticideList.length} (USGS EPest-${PESTICIDE_ESTIMATE.toLowerCase()}, year ${pestPeriod}; rows read: ${pestRows.length}; compounds in the file: ${pestCompoundNames.length})`);
+console.log(`  Columns: ${pestColumns.join(', ')}`);
+console.log(`  Counties where a combined entry (e.g. "METOLACHLOR & METOLACHLOR-S") replaced its separate parts: ${combinedWithParts}`);
+pestReport.forEach((line) => console.log(line));
+show(pesticideList);
+console.log(`  Compounds in the file: ${pestCompoundNames.join('; ')}`);
 console.log('');
 console.log(`SVI measures: ${sviList.length}`);
 show(sviList);
