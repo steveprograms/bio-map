@@ -35,6 +35,8 @@ This page is for **rebuilding** those files, for example after a new data releas
 
 `data-raw/` is ignored by git (the files are large), except the two small Connecticut town files.
 
+**About the cancer incidence measures:** these are counted cases from cancer registries, not survey estimates, averaged over 5 years and age-adjusted to the 2000 U.S. standard population. CDC suppresses counties with fewer than 16 cases (and some others, for privacy or data quality), so rare cancers have many "No data" counties, mostly small rural ones; a missing county is never zero. Breast cancer is women only and prostate cancer men only.
+
 **About the National Risk Index measures:** only the hazard frequencies (`<HAZARD>_AFREQ`) are used. The NRI's risk scores multiply in FEMA's own social vulnerability score, which would duplicate our SVI covariates, and its expected annual losses are in dollars of property, so wealthier counties score higher. Units differ by hazard; see [FEMA's annualized frequency page](https://hazards.fema.gov/nri/annualized-frequency).
 
 ## Manual downloads
@@ -44,6 +46,7 @@ This page is for **rebuilding** those files, for example after a new data releas
 | `data-raw/svi-2022-county.csv` | [CDC/ATSDR Social Vulnerability Index](https://www.atsdr.cdc.gov/place-health/php/svi/svi-data-documentation-download.html) | Year 2022, Geography United States, Geography type Counties, File type CSV |
 | `data-raw/tri-us.csv` | [EPA TRI Basic Data Files](https://www.epa.gov/toxics-release-inventory-tri-program/tri-basic-data-files-calendar-years-1987-present) | Year 2024, Geographic area U.S. |
 | `data-raw/nri-counties.csv` | [FEMA National Risk Index data resources](https://hazards.fema.gov/nri/data-resources) | Under Table (CSV), download **All Counties**, unzip it, and rename `NRI_Table_Counties.csv` |
+| `data-raw/uscs-county.txt` | [U.S. Cancer Statistics data download](https://www.cdc.gov/cancer/uscs/dataviz/download_data.htm) | Download the **1999–2023** delimited ASCII zip, unzip it, and rename `BYAREA_COUNTY.TXT` |
 
 ## All sources
 
@@ -56,6 +59,7 @@ This page is for **rebuilding** those files, for example after a new data releas
 | `tri-us.csv` | EPA Toxics Release Inventory | 2024 | Facility layer and 3 county measures |
 | `pm25-county-year*.csv`, `ozone-county-year*.csv` | CDC Tracking Network modeled PM2.5 (`53mz-4zqd`) and ozone (`3vxk-q2jk`), summarized per county and year | 2020–2022 | 4 air quality measures (lower 48 states) |
 | `nri-counties.csv` | FEMA National Risk Index, county table (the build prints its version) | Varies by hazard | 8 natural hazard frequencies: heat waves, cold waves, drought, wildfire, inland flooding, hurricanes, tornadoes, winter weather |
+| `uscs-county.txt` | CDC and NCI U.S. Cancer Statistics, county incidence (the build prints the period) | 2019–2023 | 11 cancer incidence measures (age-adjusted new cases per 100,000 per year); suppressed small counts stay "No data" |
 | `ct-towns-2020.json`, `ct-towns-2022.json` | Census API: 2020 town populations and 2022 town planning regions | 2020, 2022 | Translating Connecticut's old counties to planning regions |
 
 ## Census API key

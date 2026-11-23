@@ -10,6 +10,7 @@
 //   data-raw/pm25-county-year*.csv     CDC Tracking Network modeled PM2.5, summarized per county and year
 //   data-raw/ozone-county-year*.csv    CDC Tracking Network modeled ozone, summarized per county and year
 //   data-raw/nri-counties.csv          FEMA National Risk Index, county table (natural hazard frequencies)
+//   data-raw/uscs-county.txt           CDC/NCI U.S. Cancer Statistics, county incidence (BYAREA_COUNTY.TXT)
 //   data-raw/ct-towns-2020.json        Connecticut town populations with their old counties (2020 Census)
 //   data-raw/ct-towns-2022.json        Connecticut towns with their planning regions (2022 Census data)
 //
@@ -22,6 +23,7 @@ const PLACES_CSV = 'data-raw/places-county-all.csv';
 const SVI_CSV = 'data-raw/svi-2022-county.csv';
 const TRI_GEOJSON = 'public/data/tri-facilities.geojson';
 const NRI_CSV = 'data-raw/nri-counties.csv';
+const USCS_TXT = 'data-raw/uscs-county.txt';
 const CT_TOWNS_2020 = 'data-raw/ct-towns-2020.json';
 const CT_TOWNS_2022 = 'data-raw/ct-towns-2022.json';
 const AIR_FILES = {
@@ -465,6 +467,117 @@ for (const [prefix, id, short, name, valueType, unit, decimals, factor] of NRI_H
   for (const [fips, value] of withCtRegions(values)) addValue(id, fips, round(value));
 }
 
+// ---------- Cancer incidence: U.S. Cancer Statistics (CDC and NCI) ----------
+
+// The official federal cancer statistics: new cases diagnosed per 100,000 people per year, age-adjusted,
+// from cancer registries (counted cases, not survey estimates). We use the most recent 5-year average,
+// all races, for a selection of cancer sites. Counties with too few cases are suppressed by CDC to protect
+// privacy and keep rates stable; those stay missing ("No data"), never zero.
+//
+// The file is delimited text with a header row. Columns are found by name, so their order doesn't matter;
+// the build prints what it found so the selection below can be checked against the real file.
+const USCS_SOURCE = 'CDC and NCI U.S. Cancer Statistics';
+const CANCER_SITES = [
+  // [measure id, short name, full name, pattern for the SITE column, sex to use]
+  ['CANCER_ALL', 'All Cancers', 'All cancer sites combined, new cases', /^all cancer sites/i, 'both'],
+  ['CANCER_LUNG', 'Lung Cancer', 'Lung and bronchus cancer, new cases', /^lung and bronchus/i, 'both'],
+  ['CANCER_COLORECTAL', 'Colorectal Cancer', 'Colon and rectum cancer, new cases', /^colon and rectum/i, 'both'],
+  ['CANCER_BREAST', 'Breast Cancer (Female)', 'Female breast cancer, new cases among women', /breast/i, 'female'],
+  ['CANCER_PROSTATE', 'Prostate Cancer', 'Prostate cancer, new cases among men', /^prostate/i, 'male'],
+  ['CANCER_BLADDER', 'Bladder Cancer', 'Urinary bladder cancer, new cases', /^urinary bladder/i, 'both'],
+  ['CANCER_KIDNEY', 'Kidney Cancer', 'Kidney and renal pelvis cancer, new cases', /^kidney/i, 'both'],
+  ['CANCER_NHL', 'Non-Hodgkin Lymphoma', 'Non-Hodgkin lymphoma, new cases', /^non-hodgkin/i, 'both'],
+  ['CANCER_LEUKEMIA', 'Leukemia', 'Leukemias, new cases', /^leukemia/i, 'both'],
+  ['CANCER_MELANOMA', 'Melanoma', 'Melanoma of the skin, new cases', /^melanoma/i, 'both'],
+  ['CANCER_THYROID', 'Thyroid Cancer', 'Thyroid cancer, new cases', /^thyroid/i, 'both'],
+];
+const cancerMeasureIds = CANCER_SITES.map(([id]) => id);
+
+const uscsText = readFileSync(USCS_TXT, 'utf8').replace(/^\uFEFF/, '');
+const uscsDelimiter = ['|', '\t', ','].find((d) => uscsText.slice(0, uscsText.indexOf('\n')).includes(d)) ?? '|';
+const uscsRows = parse(uscsText, {
+  delimiter: uscsDelimiter,
+  columns: (header) => header.map((h) => h.trim().toUpperCase()),
+  skip_empty_lines: true,
+  relax_quotes: true,
+  relax_column_count: true,
+});
+const uscsColumns = Object.keys(uscsRows[0] ?? {});
+const uscsMissing = ['AREA', 'AGE_ADJUSTED_RATE', 'EVENT_TYPE', 'RACE', 'SEX', 'SITE', 'YEAR'].filter((c) => !uscsColumns.includes(c));
+if (uscsMissing.length) {
+  throw new Error(`${USCS_TXT} is missing columns: ${uscsMissing.join(', ')}. Columns found: ${uscsColumns.join(', ')}`);
+}
+
+// A county's FIPS code: a FIPS column if there is one, otherwise the 5 digits in parentheses in AREA,
+// e.g. "AL: Autauga County (01001)"
+const uscsFips = (r) => {
+  const fromColumn = String(r.FIPS ?? r.COUNTY_FIPS ?? '').trim();
+  if (/^\d{4,5}$/.test(fromColumn)) return fromColumn.padStart(5, '0');
+  const match = String(r.AREA).match(/\((\d{5})\)/);
+  return match ? match[1] : null;
+};
+const isAllRaces = (race) => /^all races/i.test(race.trim());
+const sexMatches = (sex, want) =>
+  want === 'female' ? /^female$/i.test(sex.trim()) : want === 'male' ? /^male$/i.test(sex.trim()) : /male and female|both/i.test(sex);
+
+// The most recent 5-year period, e.g. "2019-2023"
+const incidenceRows = uscsRows.filter((r) => /incidence/i.test(r.EVENT_TYPE) && isAllRaces(r.RACE));
+const periods = [...new Set(incidenceRows.map((r) => String(r.YEAR).trim()).filter((y) => /^\d{4}\s*-\s*\d{4}$/.test(y)))];
+const uscsPeriod = periods.sort((a, b) => Number(a.slice(-4)) - Number(b.slice(-4))).at(-1);
+if (!uscsPeriod) throw new Error(`No 5-year incidence period found in ${USCS_TXT}. YEAR values look like: ${[...new Set(uscsRows.slice(0, 50).map((r) => r.YEAR))].join(', ')}`);
+const uscsPeriodLabel = uscsPeriod.replace(/\s*-\s*/, '\u2013');
+const uscsSites = [...new Set(incidenceRows.map((r) => r.SITE.trim()))].sort();
+const cancerReport = []; // for the summary: which SITE each measure matched, and suppressed counts
+
+for (const [id, short, name, pattern, sex] of CANCER_SITES) {
+  const site = uscsSites.find((s) => pattern.test(s) && !/childhood|in situ/i.test(s));
+  if (!site) {
+    cancerReport.push(`  WARNING: no SITE matched ${id} (${pattern})`);
+    continue;
+  }
+  measures.set(id, {
+    id,
+    name,
+    short,
+    category: 'Health Outcomes: Cancer Incidence',
+    role: 'outcome',
+    source: `${USCS_SOURCE} (diagnoses through ${uscsPeriod.slice(-4)})`,
+    valueType: `Age-adjusted new cases per 100,000 ${sex === 'female' ? 'women' : sex === 'male' ? 'men' : 'people'} per year, ${uscsPeriodLabel} average`,
+    year: Number(uscsPeriod.slice(-4)),
+    period: uscsPeriodLabel,
+    unit: '',
+    decimals: 1,
+    scale: 'linear',
+    values: [],
+  });
+
+  const values = new Map();
+  const limits = new Map();
+  let suppressed = 0;
+  for (const r of incidenceRows) {
+    if (r.SITE.trim() !== site || String(r.YEAR).trim() !== uscsPeriod || !sexMatches(r.SEX, sex)) continue;
+    const fips = uscsFips(r);
+    if (!fips) continue;
+    const rate = num(r.AGE_ADJUSTED_RATE); // suppressed or unavailable rates (~, ., +, blank) become null
+    if (rate === null) {
+      suppressed++;
+      continue;
+    }
+    values.set(fips, rate);
+    limits.set(fips, [num(r.AGE_ADJUSTED_CI_LOWER), num(r.AGE_ADJUSTED_CI_UPPER)]);
+  }
+  if (values.size === 0) {
+    measures.delete(id);
+    cancerReport.push(`  WARNING: ${id} matched SITE "${site}" but no county has a rate (${suppressed} suppressed); left out`);
+    continue;
+  }
+  for (const [fips, rate] of withCtRegions(values)) {
+    const [low, high] = limits.get(fips) ?? [null, null];
+    addValue(id, fips, Math.round(rate * 10) / 10, low, high);
+  }
+  cancerReport.push(`  ${id.padEnd(18)} SITE "${site}", sex ${sex}: ${values.size} counties with a rate, ${suppressed} suppressed`);
+}
+
 // ---------- Join onto the county shapes ----------
 
 let matched = 0;
@@ -498,10 +611,11 @@ const placesList = all
 const triList = all.filter((m) => triMeasureIds.includes(m.id)).map(summarize);
 const airList = all.filter((m) => airMeasureIds.includes(m.id)).map(summarize);
 const nriList = all.filter((m) => nriMeasureIds.includes(m.id)).map(summarize);
+const cancerList = all.filter((m) => cancerMeasureIds.includes(m.id)).map(summarize);
 const sviList = all // keep SVI's own order
-  .filter((m) => ![...placesMeasureIds, ...triMeasureIds, ...airMeasureIds, ...nriMeasureIds].includes(m.id))
+  .filter((m) => ![...placesMeasureIds, ...triMeasureIds, ...airMeasureIds, ...nriMeasureIds, ...cancerMeasureIds].includes(m.id))
   .map(summarize);
-const measureList = [...placesList, ...triList, ...airList, ...nriList, ...sviList];
+const measureList = [...placesList, ...cancerList, ...triList, ...airList, ...nriList, ...sviList];
 
 writeFileSync(OUT_COUNTIES, JSON.stringify(shapes));
 writeFileSync(OUT_MEASURES, JSON.stringify(measureList, null, 2));
@@ -545,6 +659,12 @@ console.log('');
 console.log(`Natural hazard measures: ${nriList.length} (FEMA NRI ${nriVersion}; rows read: ${nriRows.length})`);
 if (nriMissingColumns.length) console.log(`  WARNING: columns not found in ${NRI_CSV}: ${nriMissingColumns.join(', ')}`);
 show(nriList);
+console.log('');
+console.log(`Cancer incidence measures: ${cancerList.length} (U.S. Cancer Statistics, ${uscsPeriod}; rows read: ${uscsRows.length}; delimiter "${uscsDelimiter === '\t' ? 'tab' : uscsDelimiter}")`);
+console.log(`  Columns: ${uscsColumns.join(', ')}`);
+cancerReport.forEach((line) => console.log(line));
+show(cancerList);
+console.log(`  Cancer sites in the file: ${uscsSites.join('; ')}`);
 console.log('');
 console.log(`SVI measures: ${sviList.length}`);
 show(sviList);
