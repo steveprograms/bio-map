@@ -121,6 +121,13 @@ else
   missing=1
 fi
 
+if have data-raw/smoke-county-daily.csv; then
+  echo "have smoke-county-daily.csv"
+else
+  echo "MISSING data-raw/smoke-county-daily.csv: Stanford ECHO lab wildfire smoke PM2.5 v2.0, county-level daily CSV (https://www.stanfordecholab.com/wildfire_smoke)"
+  missing=1
+fi
+
 if [ "$missing" -eq 0 ]; then
   printf '\nAll raw data is in place. Next: npm run data\n'
 else

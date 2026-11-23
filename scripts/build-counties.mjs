@@ -12,11 +12,13 @@
 //   data-raw/nri-counties.csv          FEMA National Risk Index, county table (natural hazard frequencies)
 //   data-raw/uscs-county.txt           CDC/NCI U.S. Cancer Statistics, county incidence (BYAREA_COUNTY.TXT)
 //   data-raw/pesticides-county.txt     USGS Pesticide National Synthesis Project, county use estimates (EPest)
+//   data-raw/smoke-county-daily.csv    Stanford ECHO lab daily wildfire smoke PM2.5 by county (Childs et al.)
 //   data-raw/ct-towns-2020.json        Connecticut town populations with their old counties (2020 Census)
 //   data-raw/ct-towns-2022.json        Connecticut towns with their planning regions (2022 Census data)
 //
 // Each dataset adds measures to the same county table.
-import { readFileSync, statSync, writeFileSync } from 'node:fs';
+import { createReadStream, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { createInterface } from 'node:readline';
 import { parse } from 'csv-parse/sync';
 
 const SHAPES = 'public/data/us-counties.geojson';
@@ -26,6 +28,7 @@ const TRI_GEOJSON = 'public/data/tri-facilities.geojson';
 const NRI_CSV = 'data-raw/nri-counties.csv';
 const USCS_TXT = 'data-raw/uscs-county.txt';
 const PESTICIDE_TXT = 'data-raw/pesticides-county.txt';
+const SMOKE_CSV = 'data-raw/smoke-county-daily.csv';
 const CT_TOWNS_2020 = 'data-raw/ct-towns-2020.json';
 const CT_TOWNS_2022 = 'data-raw/ct-towns-2022.json';
 const AIR_FILES = {
@@ -726,6 +729,112 @@ for (const [id, short, name] of [...PESTICIDE_COMPOUNDS, PEST_TOTAL]) {
   pestReport.push(`  ${id.padEnd(18)} counties listed in the file: ${listed}; lower-48 counties with no listed use (set to 0): ${zeros}`);
 }
 
+// ---------- Wildfire smoke: Stanford ECHO lab daily smoke PM2.5 ----------
+
+// Modeled daily PM2.5 from wildfire smoke only (on top of normal pollution), per county, from Childs et al.:
+// a machine learning model of ground monitors, satellite smoke plumes (NOAA HMS) and weather. Lower 48 states.
+// Days without smoke aren't in the file (they count as 0). We use the newest 3 years in the file and report:
+//   average smoke PM2.5 over all days, and smoke days: days per year with smoke PM2.5 of at least 5 µg/m³,
+//   a level where smoke is a noticeable share of the air (the EPA's annual PM2.5 standard is 9 µg/m³).
+const SMOKE_DAY_THRESHOLD = 5;
+const SMOKE_YEARS = 3;
+const smokeMeasureIds = ['SMOKE_PM_AVG', 'SMOKE_DAYS'];
+// County code changes since the 2010 Census that matter in the lower 48
+const SMOKE_FIPS_CHANGES = { 46113: '46102', 51515: '51019' };
+
+const smokeLines = createInterface({ input: createReadStream(SMOKE_CSV), crlfDelay: Infinity });
+let smokeHeader = null;
+let smokeCol = null;
+let smokeRowsRead = 0;
+const smokeByCounty = new Map(); // fips -> Map(year -> { sum, days })
+const smokeYearsSeen = new Set();
+for await (const rawLine of smokeLines) {
+  const line = rawLine.replace(/^\uFEFF/, '');
+  if (!line.trim()) continue;
+  const cells = line.split(',').map((c) => c.trim().replace(/^"|"$/g, ''));
+  if (!smokeHeader) {
+    smokeHeader = cells;
+    const find = (pattern, what) => {
+      const i = cells.findIndex((c) => pattern.test(c));
+      if (i < 0) throw new Error(`${SMOKE_CSV}: no ${what} column. Columns found: ${cells.join(', ')}`);
+      return i;
+    };
+    smokeCol = {
+      fips: find(/^(geoid|fips|county_?fips|countyfips)$/i, 'county FIPS (GEOID)'),
+      date: find(/^date$/i, 'date'),
+      pm: find(/smoke.*pm|pm.*smoke/i, 'smoke PM2.5'),
+    };
+    continue;
+  }
+  smokeRowsRead++;
+  const year = Number(String(cells[smokeCol.date]).replace(/\D/g, '').slice(0, 4));
+  const pm = num(cells[smokeCol.pm]);
+  if (!year || pm === null) continue;
+  let fips = String(cells[smokeCol.fips]).padStart(5, '0');
+  fips = SMOKE_FIPS_CHANGES[fips] ?? fips;
+  smokeYearsSeen.add(year);
+  const years = smokeByCounty.get(fips) ?? new Map();
+  const totals = years.get(year) ?? { sum: 0, days: 0 };
+  totals.sum += Math.max(pm, 0);
+  if (pm >= SMOKE_DAY_THRESHOLD) totals.days++;
+  years.set(year, totals);
+  smokeByCounty.set(fips, years);
+}
+if (!smokeHeader) throw new Error(`${SMOKE_CSV} is empty`);
+const smokeLastYear = Math.max(...smokeYearsSeen);
+const smokeYearList = Array.from({ length: SMOKE_YEARS }, (_, i) => smokeLastYear - SMOKE_YEARS + 1 + i);
+const smokePeriod = `${smokeYearList[0]}\u2013${smokeLastYear}`;
+const daysInYear = (y) => (new Date(y, 1, 29).getDate() === 29 ? 366 : 365);
+const smokeTotalDays = smokeYearList.reduce((total, y) => total + daysInYear(y), 0);
+
+// Every lower-48 county gets a value: a county with no smoke rows in those years had no smoke (0).
+// Connecticut: the file uses the old counties, which withCtRegions turns into planning regions below.
+const smokeAvg = new Map();
+const smokeDays = new Map();
+const smokeCounties = new Set([
+  ...[...landArea.keys()].filter((fips) => !fips.startsWith('09')),
+  ...ctOldPopulation.keys(),
+  ...smokeByCounty.keys(),
+]);
+for (const fips of smokeCounties) {
+  if (!isLower48(fips)) continue;
+  const years = smokeByCounty.get(fips) ?? new Map();
+  let sum = 0;
+  let days = 0;
+  for (const y of smokeYearList) {
+    sum += years.get(y)?.sum ?? 0;
+    days += years.get(y)?.days ?? 0;
+  }
+  smokeAvg.set(fips, sum / smokeTotalDays);
+  smokeDays.set(fips, days / SMOKE_YEARS);
+}
+const smokeMeasure = (id, short, name, valueType, unit, decimals, values) => {
+  measures.set(id, {
+    id,
+    name,
+    short,
+    category: 'Environment: Wildfire Smoke',
+    role: 'exposure',
+    source: 'Stanford ECHO lab wildfire smoke PM2.5 (Childs et al.)',
+    valueType,
+    year: smokeLastYear,
+    period: smokePeriod,
+    unit,
+    decimals,
+    scale: 'linear',
+    values: [],
+  });
+  for (const [fips, value] of withCtRegions(values)) {
+    if (!shapeFips.has(fips)) continue;
+    addValue(id, fips, Math.round(value * 10 ** decimals) / 10 ** decimals);
+  }
+};
+smokeMeasure('SMOKE_PM_AVG', 'Wildfire Smoke PM2.5 (Average)', 'Average PM2.5 from wildfire smoke',
+  `Modeled smoke PM2.5, average over all days, ${smokePeriod}`, ' µg/m³', 2, smokeAvg);
+smokeMeasure('SMOKE_DAYS', 'Wildfire Smoke Days', `Days per year with wildfire smoke PM2.5 of at least ${SMOKE_DAY_THRESHOLD} µg/m³`,
+  `Days per year with modeled smoke PM2.5 \u2265 ${SMOKE_DAY_THRESHOLD} µg/m³, ${smokePeriod} average`, ' days', 1, smokeDays);
+const smokeUnmatched = [...smokeByCounty.keys()].filter((f) => !shapeFips.has(f) && !isOldCtCounty(f));
+
 // ---------- Join onto the county shapes ----------
 
 let matched = 0;
@@ -761,10 +870,11 @@ const airList = all.filter((m) => airMeasureIds.includes(m.id)).map(summarize);
 const nriList = all.filter((m) => nriMeasureIds.includes(m.id)).map(summarize);
 const cancerList = all.filter((m) => cancerMeasureIds.includes(m.id)).map(summarize);
 const pesticideList = all.filter((m) => pesticideMeasureIds.includes(m.id)).map(summarize);
+const smokeList = all.filter((m) => smokeMeasureIds.includes(m.id)).map(summarize);
 const sviList = all // keep SVI's own order
-  .filter((m) => ![...placesMeasureIds, ...triMeasureIds, ...airMeasureIds, ...nriMeasureIds, ...cancerMeasureIds, ...pesticideMeasureIds].includes(m.id))
+  .filter((m) => ![...placesMeasureIds, ...triMeasureIds, ...airMeasureIds, ...nriMeasureIds, ...cancerMeasureIds, ...pesticideMeasureIds, ...smokeMeasureIds].includes(m.id))
   .map(summarize);
-const measureList = [...placesList, ...cancerList, ...triList, ...airList, ...nriList, ...pesticideList, ...sviList];
+const measureList = [...placesList, ...cancerList, ...triList, ...airList, ...nriList, ...pesticideList, ...smokeList, ...sviList];
 
 writeFileSync(OUT_COUNTIES, JSON.stringify(shapes));
 writeFileSync(OUT_MEASURES, JSON.stringify(measureList, null, 2));
@@ -821,6 +931,11 @@ console.log(`  Counties where a combined entry (e.g. "METOLACHLOR & METOLACHLOR-
 pestReport.forEach((line) => console.log(line));
 show(pesticideList);
 console.log(`  Compounds in the file: ${pestCompoundNames.join('; ')}`);
+console.log('');
+console.log(`Wildfire smoke measures: ${smokeList.length} (years in the file: ${Math.min(...smokeYearsSeen)}\u2013${smokeLastYear}; using ${smokePeriod}; rows read: ${smokeRowsRead})`);
+console.log(`  Columns: ${smokeHeader.join(', ')} (using ${smokeHeader[smokeCol.fips]}, ${smokeHeader[smokeCol.date]}, ${smokeHeader[smokeCol.pm]})`);
+console.log(`  Counties with smoke rows: ${smokeByCounty.size}; codes with no matching shape: ${smokeUnmatched.length}${smokeUnmatched.length ? ` (${smokeUnmatched.slice(0, 10).join(', ')})` : ''}`);
+show(smokeList);
 console.log('');
 console.log(`SVI measures: ${sviList.length}`);
 show(sviList);

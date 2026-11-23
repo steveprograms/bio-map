@@ -39,6 +39,8 @@ This page is for **rebuilding** those files, for example after a new data releas
 
 **About the pesticide measures:** these are USGS estimates of farm use, built from crop acreage and farm surveys, not measurements of what people are exposed to. They cover farm use only (not homes, lawns or public spaces) and only the lower 48 states. We use the EPest-high estimate, which also fills in use where surveys are missing; `PESTICIDE_ESTIMATE` in the build script switches to EPest-low. Values are kg applied per square mile of county land (land area from the SVI file). Counties the file doesn't list are set to 0. Connecticut's old-county amounts are split among planning regions by population share. From 2019, USGS estimates only about 70 compounds, so "all pesticides" means all compounds USGS estimated that year. Some compounds also appear as a combined entry (for example "METOLACHLOR & METOLACHLOR-S"); in a county with one, the combined entry is used and its separate parts are dropped, so the same use isn't counted twice.
 
+**About the wildfire smoke measures:** these come from a published model (Childs et al., *Environmental Science & Technology*, 2022; v2.0 extends it through 2023) that estimates the PM2.5 added by wildfire smoke, separate from everyday pollution, using ground monitors, NOAA satellite smoke plumes and weather. The county file leaves out days with no smoke, so those count as 0. Average smoke PM2.5 is over every day of the 3 years. A smoke day is a day with smoke PM2.5 of at least 5 µg/m³ (`SMOKE_DAY_THRESHOLD` in the build script); for scale, the EPA's annual PM2.5 standard is 9 µg/m³. v2.0 is marked beta by its authors. Please cite the paper when sharing results.
+
 **About the National Risk Index measures:** only the hazard frequencies (`<HAZARD>_AFREQ`) are used. The NRI's risk scores multiply in FEMA's own social vulnerability score, which would duplicate our SVI covariates, and its expected annual losses are in dollars of property, so wealthier counties score higher. Units differ by hazard; see [FEMA's annualized frequency page](https://hazards.fema.gov/nri/annualized-frequency).
 
 ## Manual downloads
@@ -50,6 +52,7 @@ This page is for **rebuilding** those files, for example after a new data releas
 | `data-raw/nri-counties.csv` | [FEMA National Risk Index data resources](https://hazards.fema.gov/nri/data-resources) | Under Table (CSV), download **All Counties**, unzip it, and rename `NRI_Table_Counties.csv` |
 | `data-raw/uscs-county.txt` | [U.S. Cancer Statistics data download](https://www.cdc.gov/cancer/uscs/dataviz/download_data.htm) | Download the **1999–2023** delimited ASCII zip, unzip it, and rename `BYAREA_COUNTY.TXT` |
 | `data-raw/pesticides-county.txt` | [USGS county pesticide use estimates, 2019 (preliminary)](https://doi.org/10.5066/P9EDTHQL) | Download the tab-delimited county estimates file (`.txt`) and rename it. When USGS publishes the final 2018–2022 estimates (planned for December 2026), use the newest year's county file instead |
+| `data-raw/smoke-county-daily.csv` | [Stanford ECHO lab wildfire smoke PM2.5](https://www.stanfordecholab.com/wildfire_smoke) | From the **v2.0** Dropbox folder, download the county-level daily estimates as CSV (not `.rds`), unzip if needed, and rename |
 
 ## All sources
 
@@ -64,6 +67,7 @@ This page is for **rebuilding** those files, for example after a new data releas
 | `nri-counties.csv` | FEMA National Risk Index, county table (the build prints its version) | Varies by hazard | 8 natural hazard frequencies: heat waves, cold waves, drought, wildfire, inland flooding, hurricanes, tornadoes, winter weather |
 | `uscs-county.txt` | CDC and NCI U.S. Cancer Statistics, county incidence (the build prints the period) | 2019–2023 | 11 cancer incidence measures (age-adjusted new cases per 100,000 per year); suppressed small counts stay "No data" |
 | `pesticides-county.txt` | USGS Pesticide National Synthesis Project, county estimates (EPest-high) | 2019 (preliminary) | 7 pesticide measures in kg per square mile of land: glyphosate, atrazine, 2,4-D, dicamba, metolachlor, chlorpyrifos, and all estimated compounds combined (lower 48 states). Paraquat is set up too but isn't in the 2019 file |
+| `smoke-county-daily.csv` | Stanford ECHO lab daily wildfire smoke PM2.5 by county, v2.0 (Childs et al.) | Newest 3 years in the file (the build prints them) | 2 wildfire smoke measures: average smoke PM2.5, and smoke days per year (smoke PM2.5 of at least 5 µg/m³) (lower 48 states) |
 | `ct-towns-2020.json`, `ct-towns-2022.json` | Census API: 2020 town populations and 2022 town planning regions | 2020, 2022 | Translating Connecticut's old counties to planning regions |
 
 ## Census API key
