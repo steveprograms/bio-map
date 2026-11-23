@@ -107,6 +107,13 @@ else
   missing=1
 fi
 
+if have data-raw/uscs-county.txt; then
+  echo "have uscs-county.txt"
+else
+  echo "MISSING data-raw/uscs-county.txt: U.S. Cancer Statistics 1999-2023 ASCII zip, BYAREA_COUNTY.TXT (unzip, rename)"
+  missing=1
+fi
+
 if [ "$missing" -eq 0 ]; then
   printf '\nAll raw data is in place. Next: npm run data\n'
 else
